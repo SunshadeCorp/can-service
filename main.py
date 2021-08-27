@@ -22,6 +22,7 @@ class CanLogger:
         self.t_can0_to_can1_running = False
         self.t_can1_to_can0 = threading.Thread(name="can1_to_can0", target=self.log_1_to_0, daemon=True)
         self.t_can1_to_can0_running = False
+        self.dict_lock = threading.Lock()
         self.latest_messages = {}
         self.message_interval = {}
 
@@ -40,17 +41,19 @@ class CanLogger:
         line = bytes.fromhex(line)
         return can.Message(timestamp=float(timestamp), arbitration_id=id, data=line, is_extended_id=False)
 
+    def process_message(self, message: can.Message):
+        with self.dict_lock:
+            if message.arbitration_id in self.latest_messages:
+                self.message_interval[message.arbitration_id] = message.timestamp - self.latest_messages[
+                    message.arbitration_id].timestamp
+            self.latest_messages[message.arbitration_id] = message
+
     def load_log(self, filename: str):
         with open(filename) as file:
             for line in file:
-                message = self.log_line_to_message(line)
-                if message.arbitration_id in self.latest_messages:
-                    self.message_interval[message.arbitration_id] = message.timestamp - self.latest_messages[
-                        message.arbitration_id].timestamp
-                self.latest_messages[message.arbitration_id] = message
+                self.process_message(self.log_line_to_message(line))
 
-    @staticmethod
-    def start(can_read: can.interface.Bus, can_write: can.interface.Bus, running: bool, file_prefix: str):
+    def start(self, can_read: can.interface.Bus, can_write: can.interface.Bus, running: bool, file_prefix: str):
         # folder = Path('logs')
         folder = Path('/media/pi/Intenso/')
         logfile = folder / f'{file_prefix}_{time():.0f}.txt'
@@ -63,6 +66,7 @@ class CanLogger:
                         print(message, file=file)
                         file.flush()
                         can_write.send(message)
+                        self.process_message(message)
         except can.CanError as error:
             print(f"failed {error}")
 
@@ -100,68 +104,74 @@ class MainWindow(Ui_MainWindow):
         self.pushButtonCan0ToCan1.clicked.connect(self.can_logger.toggle_0_to_1)
         self.pushButtonCan1ToCan0.clicked.connect(self.can_logger.toggle_1_to_0)
 
-        # self.can_logger.load_log('logs/can1_to_can0.txt')
-        self.can_logger.load_log('logs/can0_to_can1.txt')
-        self.tableWidgetMessages.clear()
-        self.tableWidgetMessages.setRowCount(len(self.can_logger.latest_messages))
-        labels = ['Timestamp', 'Time', 'ID Hex', 'ID Dec', 'Data', '0U16', '0S16', '1U16', '1S16', '2U16', '2S16',
-                  '3U16', '3S16', '0U32', '0S32', '1U32', '1S32', 'Interval']
-        self.tableWidgetMessages.setColumnCount(len(labels))
-        self.tableWidgetMessages.setHorizontalHeaderLabels(labels)
+        self.can_logger.load_log('logs/can1_to_can0.txt')
+        # self.can_logger.load_log('logs/can0_to_can1.txt')
+        self.can_logger.load_log('logs/logfile.txt')
 
-        for i, latest_message in enumerate(sorted(self.can_logger.latest_messages)):
-            message = self.can_logger.latest_messages[latest_message]
-            self.tableWidgetMessages.setItem(i, labels.index('Timestamp'),
-                                             QTableWidgetItem(f"{message.timestamp:>15.2f}"))
-            timestamp = f'{datetime.fromtimestamp(message.timestamp):%H:%M:%S}'
-            self.tableWidgetMessages.setItem(i, labels.index('Time'), QTableWidgetItem(timestamp))
-            if message.is_extended_id:
-                arbitration_id_string = f"{message.arbitration_id:08x}"
-            else:
-                arbitration_id_string = f"{message.arbitration_id:04x}"
-            self.tableWidgetMessages.setItem(i, labels.index('ID Hex'), QTableWidgetItem(arbitration_id_string))
-            self.tableWidgetMessages.setItem(i, labels.index('ID Dec'), QTableWidgetItem(str(message.arbitration_id)))
-            data_strings = []
-            if message.data is not None:
-                for index in range(0, min(message.dlc, len(message.data))):
-                    data_strings.append(f"{message.data[index]:02x}")
-            self.tableWidgetMessages.setItem(i, labels.index('Data'), QTableWidgetItem(' '.join(data_strings)))
-            value_1_u = int.from_bytes(message.data[0:2], byteorder="big", signed=False)
-            value_1_s = int.from_bytes(message.data[0:2], byteorder="big", signed=True)
-            value_2_u = int.from_bytes(message.data[2:4], byteorder="big", signed=False)
-            value_2_s = int.from_bytes(message.data[2:4], byteorder="big", signed=True)
-            value_3_u = int.from_bytes(message.data[4:6], byteorder="big", signed=False)
-            value_3_s = int.from_bytes(message.data[4:6], byteorder="big", signed=True)
-            value_4_u = int.from_bytes(message.data[6:8], byteorder="big", signed=False)
-            value_4_s = int.from_bytes(message.data[6:8], byteorder="big", signed=True)
-            self.tableWidgetMessages.setItem(i, labels.index('0U16'), QTableWidgetItem(str(value_1_u)))
-            self.tableWidgetMessages.setItem(i, labels.index('0S16'), QTableWidgetItem(str(value_1_s)))
-            self.tableWidgetMessages.setItem(i, labels.index('1U16'), QTableWidgetItem(str(value_2_u)))
-            self.tableWidgetMessages.setItem(i, labels.index('1S16'), QTableWidgetItem(str(value_2_s)))
-            self.tableWidgetMessages.setItem(i, labels.index('2U16'), QTableWidgetItem(str(value_3_u)))
-            self.tableWidgetMessages.setItem(i, labels.index('2S16'), QTableWidgetItem(str(value_3_s)))
-            self.tableWidgetMessages.setItem(i, labels.index('3U16'), QTableWidgetItem(str(value_4_u)))
-            self.tableWidgetMessages.setItem(i, labels.index('3S16'), QTableWidgetItem(str(value_4_s)))
-
-            value_1_u = int.from_bytes(message.data[0:4], byteorder="big", signed=False)
-            value_1_s = int.from_bytes(message.data[0:4], byteorder="big", signed=True)
-            value_2_u = int.from_bytes(message.data[4:8], byteorder="big", signed=False)
-            value_2_s = int.from_bytes(message.data[4:8], byteorder="big", signed=True)
-            self.tableWidgetMessages.setItem(i, labels.index('0U32'), QTableWidgetItem(str(value_1_u)))
-            self.tableWidgetMessages.setItem(i, labels.index('0S32'), QTableWidgetItem(str(value_1_s)))
-            self.tableWidgetMessages.setItem(i, labels.index('1U32'), QTableWidgetItem(str(value_2_u)))
-            self.tableWidgetMessages.setItem(i, labels.index('1S32'), QTableWidgetItem(str(value_2_s)))
-
-            if message.arbitration_id in self.can_logger.message_interval:
-                interval = self.can_logger.message_interval[message.arbitration_id]
-            else:
-                interval = -1
-            self.tableWidgetMessages.setItem(i, labels.index('Interval'), QTableWidgetItem(f'{interval:.0f}'))
+        self.refresh_values()
         self.tableWidgetMessages.resizeColumnsToContents()
 
     def show(self):
         self.main_window.show()
         self.app.exec_()
+
+    def refresh_values(self):
+        with self.can_logger.dict_lock:
+            self.tableWidgetMessages.clear()
+            self.tableWidgetMessages.setRowCount(len(self.can_logger.latest_messages))
+            labels = ['Timestamp', 'Time', 'ID Hex', 'ID Dec', 'Data', '0U16', '0S16', '1U16', '1S16', '2U16', '2S16',
+                      '3U16', '3S16', '0U32', '0S32', '1U32', '1S32', 'Interval']
+            self.tableWidgetMessages.setColumnCount(len(labels))
+            self.tableWidgetMessages.setHorizontalHeaderLabels(labels)
+            for i, latest_message in enumerate(sorted(self.can_logger.latest_messages)):
+                message = self.can_logger.latest_messages[latest_message]
+                self.tableWidgetMessages.setItem(i, labels.index('Timestamp'),
+                                                 QTableWidgetItem(f"{message.timestamp:>15.2f}"))
+                timestamp = f'{datetime.fromtimestamp(message.timestamp):%H:%M:%S}'
+                self.tableWidgetMessages.setItem(i, labels.index('Time'), QTableWidgetItem(timestamp))
+                if message.is_extended_id:
+                    arbitration_id_string = f"{message.arbitration_id:08x}"
+                else:
+                    arbitration_id_string = f"{message.arbitration_id:04x}"
+                self.tableWidgetMessages.setItem(i, labels.index('ID Hex'), QTableWidgetItem(arbitration_id_string))
+                self.tableWidgetMessages.setItem(i, labels.index('ID Dec'),
+                                                 QTableWidgetItem(str(message.arbitration_id)))
+                data_strings = []
+                if message.data is not None:
+                    for index in range(0, min(message.dlc, len(message.data))):
+                        data_strings.append(f"{message.data[index]:02x}")
+                self.tableWidgetMessages.setItem(i, labels.index('Data'), QTableWidgetItem(' '.join(data_strings)))
+                value_1_u = int.from_bytes(message.data[0:2], byteorder="big", signed=False)
+                value_1_s = int.from_bytes(message.data[0:2], byteorder="big", signed=True)
+                value_2_u = int.from_bytes(message.data[2:4], byteorder="big", signed=False)
+                value_2_s = int.from_bytes(message.data[2:4], byteorder="big", signed=True)
+                value_3_u = int.from_bytes(message.data[4:6], byteorder="big", signed=False)
+                value_3_s = int.from_bytes(message.data[4:6], byteorder="big", signed=True)
+                value_4_u = int.from_bytes(message.data[6:8], byteorder="big", signed=False)
+                value_4_s = int.from_bytes(message.data[6:8], byteorder="big", signed=True)
+                self.tableWidgetMessages.setItem(i, labels.index('0U16'), QTableWidgetItem(str(value_1_u)))
+                self.tableWidgetMessages.setItem(i, labels.index('0S16'), QTableWidgetItem(str(value_1_s)))
+                self.tableWidgetMessages.setItem(i, labels.index('1U16'), QTableWidgetItem(str(value_2_u)))
+                self.tableWidgetMessages.setItem(i, labels.index('1S16'), QTableWidgetItem(str(value_2_s)))
+                self.tableWidgetMessages.setItem(i, labels.index('2U16'), QTableWidgetItem(str(value_3_u)))
+                self.tableWidgetMessages.setItem(i, labels.index('2S16'), QTableWidgetItem(str(value_3_s)))
+                self.tableWidgetMessages.setItem(i, labels.index('3U16'), QTableWidgetItem(str(value_4_u)))
+                self.tableWidgetMessages.setItem(i, labels.index('3S16'), QTableWidgetItem(str(value_4_s)))
+
+                value_1_u = int.from_bytes(message.data[0:4], byteorder="big", signed=False)
+                value_1_s = int.from_bytes(message.data[0:4], byteorder="big", signed=True)
+                value_2_u = int.from_bytes(message.data[4:8], byteorder="big", signed=False)
+                value_2_s = int.from_bytes(message.data[4:8], byteorder="big", signed=True)
+                self.tableWidgetMessages.setItem(i, labels.index('0U32'), QTableWidgetItem(str(value_1_u)))
+                self.tableWidgetMessages.setItem(i, labels.index('0S32'), QTableWidgetItem(str(value_1_s)))
+                self.tableWidgetMessages.setItem(i, labels.index('1U32'), QTableWidgetItem(str(value_2_u)))
+                self.tableWidgetMessages.setItem(i, labels.index('1S32'), QTableWidgetItem(str(value_2_s)))
+
+                if message.arbitration_id in self.can_logger.message_interval:
+                    interval = self.can_logger.message_interval[message.arbitration_id]
+                else:
+                    interval = -1
+                self.tableWidgetMessages.setItem(i, labels.index('Interval'), QTableWidgetItem(f'{interval:.0f}'))
 
 
 def test_dump(filename: str):
