@@ -4,6 +4,7 @@ import threading
 import datetime
 import time
 from pathlib import Path
+from typing import Callable
 
 import can
 from PyQt5 import QtWidgets
@@ -13,6 +14,24 @@ from PyQt5.QtWidgets import QTableWidgetItem
 from ui.main import Ui_MainWindow
 
 
+class CanThread:
+    def __init__(self, name: str, target: Callable):
+        self.name = name
+        self.running = False
+        self.target = target
+        self.thread = threading.Thread(name=self.name, target=self.target, daemon=True)
+
+    def start_stop_thread(self):
+        if self.running:
+            self.running = False
+        elif not self.thread.is_alive():
+            self.thread = threading.Thread(name=self.name, target=self.target, daemon=True)
+            self.thread.start()
+
+    def is_running(self):
+        return self.running and self.thread.is_alive()
+
+
 class CanLogger:
     def __init__(self):
         try:
@@ -20,10 +39,8 @@ class CanLogger:
             self.can1 = can.interface.Bus(channel='can1', bustype='socketcan')
         except OSError as error:
             print(error)
-        self.t_can0_to_can1 = threading.Thread(name="can0_to_can1", target=self.log_0_to_1, daemon=True)
-        self.t_can0_to_can1_running = False
-        self.t_can1_to_can0 = threading.Thread(name="can1_to_can0", target=self.log_1_to_0, daemon=True)
-        self.t_can1_to_can0_running = False
+        self.can0_to_can1 = CanThread('can0_to_can1', self.log_0_to_1)
+        self.can1_to_can0 = CanThread('can1_to_can0', self.log_1_to_0)
         self.dict_lock = threading.Lock()
         self.latest_messages = {}
         self.message_interval = {}
@@ -55,13 +72,13 @@ class CanLogger:
             for line in file:
                 self.process_message(self.log_line_to_message(line))
 
-    def start(self, can_read: can.interface.Bus, can_write: can.interface.Bus, running: bool, file_prefix: str):
+    def start(self, can_read: can.interface.Bus, can_write: can.interface.Bus, can_thread: CanThread, file_prefix: str):
         # folder = Path('logs')
         folder = Path('/media/pi/Intenso/')
         logfile = folder / f'{file_prefix}_{time.time():.0f}.txt'
         try:
             with open(logfile, 'w') as file:
-                while running:
+                while can_thread.running:
                     message = can_read.recv(0.1)
                     if message is not None:
                         print(message)
@@ -72,29 +89,15 @@ class CanLogger:
         except can.CanError as error:
             print(f"failed {error}")
 
-    def toggle_0_to_1(self):
-        if self.t_can0_to_can1_running:
-            self.t_can0_to_can1_running = False
-        elif not self.t_can0_to_can1.is_alive():
-            self.t_can0_to_can1 = threading.Thread(name="can0_to_can1", target=self.log_0_to_1, daemon=True)
-            self.t_can0_to_can1.start()
-
-    def toggle_1_to_0(self):
-        if self.t_can1_to_can0_running:
-            self.t_can1_to_can0_running = False
-        elif not self.t_can1_to_can0.is_alive():
-            self.t_can1_to_can0 = threading.Thread(name="can1_to_can0", target=self.log_1_to_0, daemon=True)
-            self.t_can1_to_can0.start()
-
     def log_0_to_1(self):
-        self.t_can0_to_can1_running = True
-        self.start(self.can0, self.can1, self.t_can0_to_can1_running, 'can0_to_can1')
-        self.t_can0_to_can1_running = False
+        self.can0_to_can1.running = True
+        self.start(self.can0, self.can1, self.can0_to_can1, self.can0_to_can1.name)
+        self.can0_to_can1.running = False
 
     def log_1_to_0(self):
-        self.t_can1_to_can0_running = True
-        self.start(self.can1, self.can0, self.t_can1_to_can0_running, 'can1_to_can0')
-        self.t_can1_to_can0_running = False
+        self.can1_to_can0.running = True
+        self.start(self.can1, self.can0, self.can1_to_can0, self.can1_to_can0.name)
+        self.can1_to_can0.running = False
 
 
 class MainWindow(Ui_MainWindow):
@@ -105,8 +108,9 @@ class MainWindow(Ui_MainWindow):
         self.setupUi(self.main_window)
 
         self.can_logger = CanLogger()
-        self.pushButtonCan0ToCan1.clicked.connect(self.can_logger.toggle_0_to_1)
-        self.pushButtonCan1ToCan0.clicked.connect(self.can_logger.toggle_1_to_0)
+        self.pushButtonCan0ToCan1.clicked.connect(self.can_logger.can0_to_can1.start_stop_thread)
+        self.pushButtonCan1ToCan0.clicked.connect(self.can_logger.can1_to_can0.start_stop_thread)
+        self.pushButtonAutosize.clicked.connect(self.autosize_table)
 
         # self.can_logger.load_log('logs/can1_to_can0.txt')
         # self.can_logger.load_log('logs/can0_to_can1.txt')
@@ -119,16 +123,22 @@ class MainWindow(Ui_MainWindow):
         timer.timeout.connect(self.refresh_values)
         timer.start(1000)
 
+        if sys.platform.startswith("linux"):
+            self.main_window.showMaximized()
+
     def show(self):
         self.main_window.show()
         self.app.exec_()
 
+    def autosize_table(self):
+        self.tableWidgetMessages.resizeColumnsToContents()
+
     def refresh_values(self):
-        if self.can_logger.t_can0_to_can1_running:
+        if self.can_logger.can0_to_can1.is_running():
             self.pushButtonCan0ToCan1.setText(self.pushButtonCan0ToCan1.text().upper())
         else:
             self.pushButtonCan0ToCan1.setText(self.pushButtonCan0ToCan1.text().lower())
-        if self.can_logger.t_can1_to_can0_running:
+        if self.can_logger.can1_to_can0.is_running():
             self.pushButtonCan1ToCan0.setText(self.pushButtonCan1ToCan0.text().upper())
         else:
             self.pushButtonCan1ToCan0.setText(self.pushButtonCan1ToCan0.text().lower())
