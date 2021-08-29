@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 import sys
 import threading
-from datetime import datetime, timezone, timedelta, time
+import datetime
+import time
 from pathlib import Path
 
 import can
 from PyQt5 import QtWidgets
+from PyQt5.QtCore import QTimer
 from PyQt5.QtWidgets import QTableWidgetItem
 
 from ui.main import Ui_MainWindow
@@ -56,7 +58,7 @@ class CanLogger:
     def start(self, can_read: can.interface.Bus, can_write: can.interface.Bus, running: bool, file_prefix: str):
         # folder = Path('logs')
         folder = Path('/media/pi/Intenso/')
-        logfile = folder / f'{file_prefix}_{time():.0f}.txt'
+        logfile = folder / f'{file_prefix}_{time.time():.0f}.txt'
         try:
             with open(logfile, 'w') as file:
                 while running:
@@ -73,13 +75,15 @@ class CanLogger:
     def toggle_0_to_1(self):
         if self.t_can0_to_can1_running:
             self.t_can0_to_can1_running = False
-        else:
+        elif not self.t_can0_to_can1.is_alive():
+            self.t_can0_to_can1 = threading.Thread(name="can0_to_can1", target=self.log_0_to_1, daemon=True)
             self.t_can0_to_can1.start()
 
     def toggle_1_to_0(self):
         if self.t_can1_to_can0_running:
             self.t_can1_to_can0_running = False
-        else:
+        elif not self.t_can1_to_can0.is_alive():
+            self.t_can1_to_can0 = threading.Thread(name="can1_to_can0", target=self.log_1_to_0, daemon=True)
             self.t_can1_to_can0.start()
 
     def log_0_to_1(self):
@@ -104,30 +108,42 @@ class MainWindow(Ui_MainWindow):
         self.pushButtonCan0ToCan1.clicked.connect(self.can_logger.toggle_0_to_1)
         self.pushButtonCan1ToCan0.clicked.connect(self.can_logger.toggle_1_to_0)
 
-        self.can_logger.load_log('logs/can1_to_can0.txt')
+        # self.can_logger.load_log('logs/can1_to_can0.txt')
         # self.can_logger.load_log('logs/can0_to_can1.txt')
-        self.can_logger.load_log('logs/logfile.txt')
+        # self.can_logger.load_log('logs/logfile.txt')
 
         self.refresh_values()
         self.tableWidgetMessages.resizeColumnsToContents()
+
+        timer = QTimer(self.main_window)
+        timer.timeout.connect(self.refresh_values)
+        timer.start(1000)
 
     def show(self):
         self.main_window.show()
         self.app.exec_()
 
     def refresh_values(self):
+        if self.can_logger.t_can0_to_can1_running:
+            self.pushButtonCan0ToCan1.setText(self.pushButtonCan0ToCan1.text().upper())
+        else:
+            self.pushButtonCan0ToCan1.setText(self.pushButtonCan0ToCan1.text().lower())
+        if self.can_logger.t_can1_to_can0_running:
+            self.pushButtonCan1ToCan0.setText(self.pushButtonCan1ToCan0.text().upper())
+        else:
+            self.pushButtonCan1ToCan0.setText(self.pushButtonCan1ToCan0.text().lower())
         with self.can_logger.dict_lock:
             self.tableWidgetMessages.clear()
             self.tableWidgetMessages.setRowCount(len(self.can_logger.latest_messages))
             labels = ['Timestamp', 'Time', 'ID Hex', 'ID Dec', 'Data', '0U16', '0S16', '1U16', '1S16', '2U16', '2S16',
-                      '3U16', '3S16', '0U32', '0S32', '1U32', '1S32', 'Interval']
+                      '3U16', '3S16', '0U32', '0S32', '1U32', '1S32', 'Interval', 'Channel']
             self.tableWidgetMessages.setColumnCount(len(labels))
             self.tableWidgetMessages.setHorizontalHeaderLabels(labels)
             for i, latest_message in enumerate(sorted(self.can_logger.latest_messages)):
                 message = self.can_logger.latest_messages[latest_message]
                 self.tableWidgetMessages.setItem(i, labels.index('Timestamp'),
                                                  QTableWidgetItem(f"{message.timestamp:>15.2f}"))
-                timestamp = f'{datetime.fromtimestamp(message.timestamp):%H:%M:%S}'
+                timestamp = f'{datetime.datetime.fromtimestamp(message.timestamp):%H:%M:%S}'
                 self.tableWidgetMessages.setItem(i, labels.index('Time'), QTableWidgetItem(timestamp))
                 if message.is_extended_id:
                     arbitration_id_string = f"{message.arbitration_id:08x}"
@@ -172,6 +188,7 @@ class MainWindow(Ui_MainWindow):
                 else:
                     interval = -1
                 self.tableWidgetMessages.setItem(i, labels.index('Interval'), QTableWidgetItem(f'{interval:.0f}'))
+                self.tableWidgetMessages.setItem(i, labels.index('Channel'), QTableWidgetItem(f'{message.channel}'))
 
 
 def test_dump(filename: str):
@@ -202,7 +219,8 @@ def test_dump(filename: str):
                 # print(f'{message} {message_id} {battery_charge_voltage}V {dc_current_limit}% {dc_discharge_current_limit}A {battery_discharge_voltage}V')
 
             elif message.arbitration_id == 0x110:
-                timestamp = datetime.fromtimestamp(message.timestamp, timezone(timedelta(hours=0)))
+                timestamp = datetime.datetime.fromtimestamp(message.timestamp,
+                                                            datetime.timezone(datetime.timedelta(hours=0)))
                 value_1 = int.from_bytes(message.data[0:2], byteorder="big", signed=False) * 0.1  # charge voltage
                 value_2 = int.from_bytes(message.data[2:4], byteorder="big", signed=False) * 0.1  # discharge voltage
                 value_3 = int.from_bytes(message.data[4:6], byteorder="big", signed=True) * 0.1  # charge current
@@ -210,7 +228,8 @@ def test_dump(filename: str):
                 print(f'{timestamp} {message} {value_1:.1f}V {value_2}V {value_3}A {value_4}A ')
                 # print(f' {message}')
             elif message.arbitration_id == 0x150:
-                timestamp = datetime.fromtimestamp(message.timestamp, timezone(timedelta(hours=0)))
+                timestamp = datetime.datetime.fromtimestamp(message.timestamp,
+                                                            datetime.timezone(datetime.timedelta(hours=0)))
                 # value_1 = int.from_bytes(message.data[0:2], byteorder="big", signed=False)  # 610 - 2870
                 # value_2 = int.from_bytes(message.data[2:4], byteorder="big", signed=False)  # 10000
                 # value_3 = int.from_bytes(message.data[4:6], byteorder="big", signed=False)  # SOC?
@@ -230,7 +249,8 @@ def test_dump(filename: str):
             #     timestamp = datetime.fromtimestamp(message.timestamp, timezone(timedelta(hours=0)))
             #     # print(f'{timestamp} {message}')
             else:
-                timestamp = datetime.fromtimestamp(message.timestamp, timezone(timedelta(hours=0)))
+                timestamp = datetime.datetime.fromtimestamp(message.timestamp,
+                                                            datetime.timezone(datetime.timedelta(hours=0)))
                 value_1 = int.from_bytes(message.data[0:2], byteorder="big", signed=False) * 0.1
                 value_2 = int.from_bytes(message.data[2:4], byteorder="big", signed=False) * 0.1
                 value_3 = int.from_bytes(message.data[4:6], byteorder="big", signed=False) * 0.1
