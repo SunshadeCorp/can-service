@@ -1,4 +1,4 @@
-all: main.py display.py
+all: main.py values.py
 clean:
 	rm -f *.py
 

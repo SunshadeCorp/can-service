@@ -12,7 +12,7 @@ from PyQt5 import QtWidgets, QtCore
 from PyQt5.QtCore import QTimer
 from PyQt5.QtWidgets import QTableWidgetItem, QDialog, QMainWindow
 
-from ui.display import Ui_Dialog
+from ui.values import Ui_Dialog
 from ui.main import Ui_MainWindow
 
 
@@ -46,6 +46,30 @@ class CanLogger:
         self.dict_lock = threading.Lock()
         self.latest_messages = {}
         self.message_interval = {}
+        self.overwrite = False
+        self.overwrite_messages = []
+
+    def overwrite_toggle(self):
+        if self.overwrite:
+            self.overwrite = False
+        else:
+            if Path('display.json').is_file():
+                with open('display.json', 'r') as f:
+                    self.overwrite_messages = json.load(f)
+                self.overwrite_messages[:] = [message for message in self.overwrite_messages if
+                                              len(message['overwrite']) > 0]
+                for i, overwrite_message in enumerate(self.overwrite_messages):
+                    can_id = bytes.fromhex(self.overwrite_messages[i]['can_id_hex'])
+                    can_id = int.from_bytes(can_id, byteorder='big', signed=False)
+                    self.overwrite_messages[i]['can_id'] = can_id
+                    signed = bool(self.overwrite_messages[i]['signed'])
+                    data = float(self.overwrite_messages[i]['overwrite']) * (
+                            1.0 / float(self.overwrite_messages[i]['scaling']))
+                    data = int(data).to_bytes(
+                        int(self.overwrite_messages[i]['endbit']) - int(self.overwrite_messages[i]['startbit']),
+                        byteorder='big', signed=signed)
+                    self.overwrite_messages[i]['data'] = data
+                self.overwrite = True
 
     @staticmethod
     def log_line_to_message(line: str) -> can.Message:
@@ -78,18 +102,31 @@ class CanLogger:
         # folder = Path('logs')
         folder = Path('/media/pi/Intenso/')
         logfile = folder / f'{file_prefix}_{time.time():.0f}.txt'
-        try:
-            with open(logfile, 'w') as file:
-                while can_thread.running:
+        with open(logfile, 'w') as file:
+            while can_thread.running:
+                try:
                     message = can_read.recv(0.1)
-                    if message is not None:
-                        print(message)
-                        print(message, file=file)
-                        file.flush()
+                except can.CanError as e:
+                    print(f'can read failed: {e}')
+                    continue
+                if message is not None:
+                    print(message)
+                    print(message, file=file)
+                    file.flush()
+                    if self.overwrite:
+                        overwritten = False
+                        for overwrite_message in self.overwrite_messages:
+                            if message.arbitration_id == overwrite_message['can_id']:
+                                message.data[overwrite_message['startbit']:overwrite_message['endbit']] = \
+                                    overwrite_message['data']
+                                overwritten = True
+                        if overwritten:
+                            print(f'message overwrite: {message}')
+                    try:
                         can_write.send(message)
-                        self.process_message(message)
-        except can.CanError as error:
-            print(f"failed {error}")
+                    except can.CanError as e:
+                        print(f'can write failed: {e}')
+                    self.process_message(message)
 
     def log_0_to_1(self):
         self.can0_to_can1.running = True
@@ -102,7 +139,7 @@ class CanLogger:
         self.can1_to_can0.running = False
 
 
-class DisplayDialog(Ui_Dialog):
+class ValuesDialog(Ui_Dialog):
     def __init__(self, parent: QMainWindow, can_logger: CanLogger):
         self.dialog = QDialog(parent, QtCore.Qt.WindowCloseButtonHint)
         self.setupUi(self.dialog)
@@ -114,7 +151,7 @@ class DisplayDialog(Ui_Dialog):
         self.pushButtonAutosize.clicked.connect(self.autosize_table)
         self.pushButtonDelete.clicked.connect(self.delete_row)
 
-        self.labels = ['ID Hex', 'Startbit', 'Endbit', 'Signed', 'Scaling', 'Description', 'Value']
+        self.labels = ['ID Hex', 'Startbit', 'Endbit', 'Signed', 'Scaling', 'Description', 'Value', 'Overwrite']
         self.tableWidgetDisplay.setColumnCount(len(self.labels))
         self.tableWidgetDisplay.setHorizontalHeaderLabels(self.labels)
 
@@ -151,6 +188,8 @@ class DisplayDialog(Ui_Dialog):
                                                 QTableWidgetItem(display_message['scaling']))
                 self.tableWidgetDisplay.setItem(i, self.labels.index('Description'),
                                                 QTableWidgetItem(display_message['description']))
+                self.tableWidgetDisplay.setItem(i, self.labels.index('Overwrite'),
+                                                QTableWidgetItem(display_message['overwrite']))
 
     def close_and_save(self):
         self.save_config()
@@ -223,6 +262,17 @@ class DisplayDialog(Ui_Dialog):
                 description = description.text()
             display_message['description'] = description
 
+            overwrite = self.tableWidgetDisplay.item(i, self.labels.index('Overwrite'))
+            if overwrite is None:
+                overwrite = ''
+            else:
+                overwrite = overwrite.text()
+                try:
+                    float(overwrite)
+                except ValueError:
+                    overwrite = ''
+            display_message['overwrite'] = overwrite
+
             self.display_messages.append(display_message)
 
             with self.can_logger.dict_lock:
@@ -230,7 +280,11 @@ class DisplayDialog(Ui_Dialog):
                     message = self.can_logger.latest_messages[can_id]
                     value = int.from_bytes(message.data[startbit:endbit], byteorder="big", signed=signed)
                     value = scaling * value
-                    self.tableWidgetDisplay.setItem(i, self.labels.index('Value'), QTableWidgetItem(f'{value:.2f}'))
+                    format_len = 0
+                    if len(display_message['scaling']) > 2:
+                        format_len = len(display_message['scaling']) - 2
+                    self.tableWidgetDisplay.setItem(i, self.labels.index('Value'),
+                                                    QTableWidgetItem(f'{value:.{format_len}f}'))
 
     def autosize_table(self):
         self.tableWidgetDisplay.resizeColumnsToContents()
@@ -247,11 +301,8 @@ class MainWindow(Ui_MainWindow):
         self.pushButtonCan0ToCan1.clicked.connect(self.can_logger.can0_to_can1.start_stop_thread)
         self.pushButtonCan1ToCan0.clicked.connect(self.can_logger.can1_to_can0.start_stop_thread)
         self.pushButtonAutosize.clicked.connect(self.autosize_table)
-        self.pushButtonDisplay.clicked.connect(self.display_values)
-
-        self.can_logger.load_log('logs/can1_to_can0.txt')
-        # self.can_logger.load_log('logs/can0_to_can1.txt')
-        # self.can_logger.load_log('logs/logfile.txt')
+        self.pushButtonValues.clicked.connect(self.display_values)
+        self.pushButtonOverwrite.clicked.connect(self.can_logger.overwrite_toggle)
 
         self.labels = ['Timestamp', 'Time', 'ID Hex', 'ID Dec', 'Data', '0U16', '0S16', '1U16', '1S16', '2U16', '2S16',
                        '3U16', '3S16', '0U32', '0S32', '1U32', '1S32', 'Interval', 'Channel']
@@ -264,13 +315,17 @@ class MainWindow(Ui_MainWindow):
 
         if sys.platform.startswith("linux"):
             self.main_window.showMaximized()
+        else:
+            self.can_logger.load_log('logs/can1_to_can0.txt')
+            # self.can_logger.load_log('logs/can0_to_can1.txt')
+            # self.can_logger.load_log('logs/logfile.txt')
 
     def show(self):
         self.main_window.show()
         self.app.exec_()
 
     def display_values(self):
-        DisplayDialog(self.main_window, self.can_logger)
+        ValuesDialog(self.main_window, self.can_logger)
 
     def autosize_table(self):
         self.tableWidgetMessages.resizeColumnsToContents()
@@ -284,6 +339,10 @@ class MainWindow(Ui_MainWindow):
             self.pushButtonCan1ToCan0.setText(self.pushButtonCan1ToCan0.text().upper())
         else:
             self.pushButtonCan1ToCan0.setText(self.pushButtonCan1ToCan0.text().lower())
+        if self.can_logger.overwrite:
+            self.pushButtonOverwrite.setText(self.pushButtonOverwrite.text().upper())
+        else:
+            self.pushButtonOverwrite.setText(self.pushButtonOverwrite.text().lower())
         with self.can_logger.dict_lock:
             self.tableWidgetMessages.clear()
             self.tableWidgetMessages.setRowCount(len(self.can_logger.latest_messages))
