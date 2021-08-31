@@ -62,12 +62,14 @@ class CanLogger:
                     can_id = bytes.fromhex(self.overwrite_messages[i]['can_id_hex'])
                     can_id = int.from_bytes(can_id, byteorder='big', signed=False)
                     self.overwrite_messages[i]['can_id'] = can_id
+                    self.overwrite_messages[i]['startbit'] = int(self.overwrite_messages[i]['startbit'])
+                    self.overwrite_messages[i]['endbit'] = int(self.overwrite_messages[i]['endbit'])
                     signed = bool(self.overwrite_messages[i]['signed'])
                     data = float(self.overwrite_messages[i]['overwrite']) * (
                             1.0 / float(self.overwrite_messages[i]['scaling']))
                     data = int(data).to_bytes(
-                        int(self.overwrite_messages[i]['endbit']) - int(self.overwrite_messages[i]['startbit']),
-                        byteorder='big', signed=signed)
+                        self.overwrite_messages[i]['endbit'] - self.overwrite_messages[i]['startbit'], byteorder='big',
+                        signed=signed)
                     self.overwrite_messages[i]['data'] = data
                 self.overwrite = True
 
@@ -121,7 +123,7 @@ class CanLogger:
                                     overwrite_message['data']
                                 overwritten = True
                         if overwritten:
-                            print(f'message overwrite: {message}')
+                            print(f'{message} <message overwrite>')
                     try:
                         can_write.send(message)
                     except can.CanError as e:
