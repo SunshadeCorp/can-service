@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import json
+import sched
 import sys
 import threading
 import datetime
@@ -34,6 +35,143 @@ class CanThread:
         return self.running and self.thread.is_alive()
 
 
+class CanBydSim:
+    def __init__(self):
+        try:
+            self.can0 = can.interface.Bus(channel='can0', bustype='socketcan')
+        except OSError as error:
+            print(error)
+            self.can0 = can.interface.Bus(channel='can0', bustype='virtual')
+        self.scheduler = sched.scheduler()
+        self.name = 'byd-sim'
+        self.running = False
+        self.overwrite = False
+        self.thread = threading.Thread(name=self.name, target=self.run, daemon=True)
+        self.message_infos = {}
+        self.message_infos_lock = threading.Lock()
+
+    def overwrite_toggle(self):
+        if self.overwrite:
+            self.overwrite = False
+        else:
+            self.load_message_infos()
+            self.overwrite = True
+
+    def start_stop(self):
+        if self.running:
+            self.running = False
+        elif not self.thread.is_alive():
+            print('start thread')
+            self.thread = threading.Thread(name=self.name, target=self.run, daemon=True)
+            self.thread.start()
+
+    def load_message_infos(self):
+        with self.message_infos_lock:
+            self.message_infos = {}
+            if Path('display.json').is_file():
+                with open('display.json', 'r') as f:
+                    message_infos = json.load(f)
+                for i, message_info in enumerate(message_infos):
+                    can_id = bytes.fromhex(message_infos[i]['can_id_hex'])
+                    can_id = int.from_bytes(can_id, byteorder='big', signed=False)
+                    if can_id not in self.message_infos:
+                        self.message_infos[can_id] = {}
+                    startbit = int(message_infos[i]['startbit'])
+                    if startbit not in self.message_infos:
+                        self.message_infos[can_id][startbit] = {}
+                    endbit = int(message_infos[i]['endbit'])
+                    self.message_infos[can_id][startbit]['endbit'] = endbit
+                    self.message_infos[can_id][startbit]['length'] = endbit - startbit
+                    self.message_infos[can_id][startbit]['signed'] = bool(message_infos[i]['signed'])
+                    self.message_infos[can_id][startbit]['scaling'] = float(message_infos[i]['scaling'])
+                    if len(message_infos[i]['overwrite']) > 0:
+                        self.message_infos[can_id][startbit]['overwrite'] = float(message_infos[i]['overwrite'])
+
+    def process_message(self, message: can.Message):
+        if message.arbitration_id == 0x151:
+            if message.data[0] == 0x1:
+                messages = [(0x250, b'\x03\x16\x00\x66\x00\x33\x02\x09'),
+                            (0x290, b'\x06\x37\x10\xd9\x00\x00\x00\x00'),
+                            (0x2d0, b'\x00' + b'BYD' + b'\x00' * 4),
+                            (0x3d0, b'\x00' + b'Battery'),
+                            (0x3d0, b'\x01' + b'-Box Pr'),
+                            (0x3d0, b'\x02' + b'emium H'),
+                            (0x3d0, b'\x03' + b'VS' + b'\x00' * 5)]
+                for message in messages:
+                    self.can0.send(can.Message(arbitration_id=message[0], data=message[1], is_extended_id=False))
+
+    def run(self):
+        self.running = True
+        self.init_scheduler()
+        self.load_message_infos()
+        while self.running:
+            self.scheduler.run(blocking=False)
+            try:
+                message = self.can0.recv(0.1)
+            except can.CanError as e:
+                print(f'can read failed: {e}')
+                continue
+            if message is not None:
+                self.process_message(message)
+        self.running = False
+
+    def is_running(self) -> bool:
+        return self.running and self.thread.is_alive()
+
+    def init_scheduler(self):
+        self.scheduler.enter(2, 2, self.send_limits)
+        self.scheduler.enter(10, 2, self.send_states)
+        self.scheduler.enter(60, 2, self.send_alarm)
+        self.scheduler.enter(10, 2, self.send_battery_info)
+        self.scheduler.enter(10, 2, self.send_cell_info)
+
+    @staticmethod
+    def calculate_bytes(message_info: dict, value: float) -> bytearray:
+        data = value * (1.0 / message_info['scaling'])
+        data = int(data).to_bytes(message_info['length'], byteorder='big', signed=message_info['signed'])
+        return bytearray(data)
+
+    def calculate_message(self, can_id: int, initial_data=b'\x00' * 8) -> can.Message:
+        data = bytearray(initial_data)
+        with self.message_infos_lock:
+            if can_id in self.message_infos:
+                for startbit, message_info in self.message_infos[can_id].items():
+                    if self.overwrite and 'overwrite' in message_info:
+                        new_bytes = self.calculate_bytes(message_info, message_info['overwrite'])
+                        data[startbit:message_info['endbit']] = new_bytes
+        return can.Message(arbitration_id=can_id, data=data, is_extended_id=False)
+
+    def send_limits(self):
+        message = self.calculate_message(0x110, b'\x09\x20\x06\x40\x01\x00\x01\x00')
+        self.can0.send(message)
+        print(message)
+        self.scheduler.enter(2, 1, self.send_limits)
+
+    def send_states(self):
+        message = self.calculate_message(0x150, b'\x26\x0c\x27\x10\x00\xf3\x00\xfa')
+        self.can0.send(message)
+        print(message)
+        self.scheduler.enter(10, 1, self.send_states)
+
+    def send_alarm(self):
+        message = self.calculate_message(0x190, b'\x00' * 3 + b'\x04' + b'\x00' * 4)
+        self.can0.send(message)
+        print(message)
+        self.scheduler.enter(60, 1, self.send_alarm)
+
+    def send_battery_info(self):
+        message = self.calculate_message(0x1d0, b'\x08\x49\x00\x00\x00\xb4\x03\x08')
+        self.can0.send(message)
+        print(message)
+        self.scheduler.enter(10, 1, self.send_battery_info)
+
+    def send_cell_info(self):
+        message = self.calculate_message(0x210, b'\x00\xbe\x00\xb4' + b'\x00' * 4)
+        self.can0.send(message)
+        print(message)
+        self.scheduler.enter(10, 1, self.send_cell_info)
+
+
 class CanLogger:
     def __init__(self):
         try:
@@ -41,6 +179,8 @@ class CanLogger:
             self.can1 = can.interface.Bus(channel='can1', bustype='socketcan')
         except OSError as error:
             print(error)
+            self.can0 = can.interface.Bus(channel='can0', bustype='virtual')
+            self.can1 = can.interface.Bus(channel='can1', bustype='virtual')
         self.can0_to_can1 = CanThread('can0_to_can1', self.log_0_to_1)
         self.can1_to_can0 = CanThread('can1_to_can0', self.log_1_to_0)
         self.dict_lock = threading.Lock()
@@ -48,12 +188,13 @@ class CanLogger:
         self.message_interval = {}
         self.overwrite = False
         self.overwrite_messages = []
+        self.overwrite_messages_lock = threading.Lock()
 
     def overwrite_toggle(self):
         if self.overwrite:
             self.overwrite = False
-        else:
-            if Path('display.json').is_file():
+        elif Path('display.json').is_file():
+            with self.overwrite_messages_lock:
                 with open('display.json', 'r') as f:
                     self.overwrite_messages = json.load(f)
                 self.overwrite_messages[:] = [message for message in self.overwrite_messages if
@@ -71,7 +212,7 @@ class CanLogger:
                         self.overwrite_messages[i]['endbit'] - self.overwrite_messages[i]['startbit'], byteorder='big',
                         signed=signed)
                     self.overwrite_messages[i]['data'] = data
-                self.overwrite = True
+            self.overwrite = True
 
     @staticmethod
     def log_line_to_message(line: str) -> can.Message:
@@ -117,11 +258,12 @@ class CanLogger:
                     file.flush()
                     if self.overwrite:
                         overwritten = False
-                        for overwrite_message in self.overwrite_messages:
-                            if message.arbitration_id == overwrite_message['can_id']:
-                                message.data[overwrite_message['startbit']:overwrite_message['endbit']] = \
-                                    overwrite_message['data']
-                                overwritten = True
+                        with self.overwrite_messages_lock:
+                            for overwrite_message in self.overwrite_messages:
+                                if message.arbitration_id == overwrite_message['can_id']:
+                                    message.data[overwrite_message['startbit']:overwrite_message['endbit']] = \
+                                        overwrite_message['data']
+                                    overwritten = True
                         if overwritten:
                             print(f'{message} <message overwrite>')
                     try:
@@ -300,11 +442,13 @@ class MainWindow(Ui_MainWindow):
         self.setupUi(self.main_window)
 
         self.can_logger = CanLogger()
+        # self.can_byd_sim = CanBydSim()
+        # self.can_byd_sim.start_stop()
         self.pushButtonCan0ToCan1.clicked.connect(self.can_logger.can0_to_can1.start_stop_thread)
         self.pushButtonCan1ToCan0.clicked.connect(self.can_logger.can1_to_can0.start_stop_thread)
         self.pushButtonAutosize.clicked.connect(self.autosize_table)
         self.pushButtonValues.clicked.connect(self.display_values)
-        self.pushButtonOverwrite.clicked.connect(self.can_logger.overwrite_toggle)
+        self.pushButtonOverwrite.clicked.connect(self.overwrite_toggle)
 
         self.labels = ['Timestamp', 'Time', 'ID Hex', 'ID Dec', 'Data', '0U16', '0S16', '1U16', '1S16', '2U16', '2S16',
                        '3U16', '3S16', '0U32', '0S32', '1U32', '1S32', 'Interval', 'Channel']
@@ -318,9 +462,14 @@ class MainWindow(Ui_MainWindow):
         if sys.platform.startswith("linux"):
             self.main_window.showMaximized()
         else:
-            self.can_logger.load_log('logs/can1_to_can0.txt')
+            pass
+            # self.can_logger.load_log('logs/can1_to_can0.txt')
             # self.can_logger.load_log('logs/can0_to_can1.txt')
             # self.can_logger.load_log('logs/logfile.txt')
+
+    def overwrite_toggle(self):
+        self.can_logger.overwrite_toggle()
+        self.can_byd_sim.overwrite_toggle()
 
     def show(self):
         self.main_window.show()
@@ -404,96 +553,66 @@ class MainWindow(Ui_MainWindow):
                                                  QTableWidgetItem(f'{message.channel}'))
 
 
-def test_dump(filename: str):
+def test_multiple_logs(start_name: str):
+    result = list(Path('logs').rglob(f'{start_name}*.txt'))
+    id_dict = {}
+    byte_dict = {}
+    for file in result:
+        # test_log(str(file))
+        with open(file) as file_in:
+            for line in file_in:
+                message = CanLogger.log_line_to_message(line)
+                id_dict[hex(message.arbitration_id)] = 1
+                if message.arbitration_id == 0x1d0:
+                    for i in range(8):
+                        if i not in byte_dict:
+                            print(message)
+                            byte_dict[i] = {}
+                        byte_dict[i][message.data[i]] = 1
+                        # byte_dict[i][hex(message.data[i])] = 1
+                        # byte_dict[i][bin(message.data[i])] = 1
+                        # if message.data[i] != 0:
+                        #     print(f'not null {i}, {hex(message.data[i - 1])} {hex(message.data[i])}')
+                    for i in range(4):
+                        if 2 * i + 10 not in byte_dict:
+                            byte_dict[2 * i + 10] = {}
+                            byte_dict[2 * i + 11] = {}
+                        value_u = int.from_bytes(message.data[2 * i:2 * i + 2], byteorder="big", signed=False)
+                        value_s = int.from_bytes(message.data[2 * i:2 * i + 2], byteorder="big", signed=True)
+                        byte_dict[2 * i + 10][value_u] = 1
+                        byte_dict[2 * i + 11][value_s] = 1
+    for pos in byte_dict:
+        print(f'{pos} {len(byte_dict[pos])} >> {min(byte_dict[pos])} {max(byte_dict[pos])}')
+    for can_id in id_dict:
+        print(can_id)
+    # print(byte_dict)
+
+
+def test_log(filename: str):
     with open(filename) as file_in:
+        byte_dict = {}
         for line in file_in:
             message = CanLogger.log_line_to_message(line)
 
-            if message.arbitration_id == 0x111:
-                message_id = hex(message.arbitration_id)
-                timestamp = int.from_bytes(message.data[0:4], byteorder="big", signed=False)
-                # print(f'{message_id} {timestamp} {datetime.fromtimestamp(timestamp, timezone(timedelta(hours=0)))}')
-            elif message.arbitration_id == 0x91:
-                # print(message)
-                message_id = hex(message.arbitration_id)
-                # battery_charge_voltage = int.from_bytes(message.data[0:2], byteorder="big", signed=False) * 0.1
-                # dc_current_limit = int.from_bytes(message.data[2:4], byteorder="big", signed=True)
-                # dc_discharge_current_limit = int.from_bytes(message.data[4:6], byteorder="big", signed=True) * 0.1
-                # battery_discharge_voltage = int.from_bytes(message.data[6:8], byteorder="big", signed=False) * 0.1
-                # print(f'{message} {message_id} {battery_charge_voltage}V {dc_current_limit}% {dc_discharge_current_limit}A {battery_discharge_voltage}V')
-            elif message.arbitration_id == 0xd1:
-                # print(message)
-                # message_id = hex(message.arbitration_id)
-                battery_charge_voltage = int.from_bytes(message.data[0:2], byteorder="big", signed=False)
-                print(battery_charge_voltage)
-                # dc_current_limit = int.from_bytes(message.data[2:4], byteorder="big", signed=True)
-                # dc_discharge_current_limit = int.from_bytes(message.data[4:6], byteorder="big", signed=True) * 0.1
-                # battery_discharge_voltage = int.from_bytes(message.data[6:8], byteorder="big", signed=False) * 0.1
-                # print(f'{message} {message_id} {battery_charge_voltage}V {dc_current_limit}% {dc_discharge_current_limit}A {battery_discharge_voltage}V')
-
-            elif message.arbitration_id == 0x110:
-                timestamp = datetime.datetime.fromtimestamp(message.timestamp,
-                                                            datetime.timezone(datetime.timedelta(hours=0)))
-                value_1 = int.from_bytes(message.data[0:2], byteorder="big", signed=False) * 0.1  # charge voltage
-                value_2 = int.from_bytes(message.data[2:4], byteorder="big", signed=False) * 0.1  # discharge voltage
-                value_3 = int.from_bytes(message.data[4:6], byteorder="big", signed=True) * 0.1  # charge current
-                value_4 = int.from_bytes(message.data[6:8], byteorder="big", signed=True) * 0.1  # discharge current
-                print(f'{timestamp} {message} {value_1:.1f}V {value_2}V {value_3}A {value_4}A ')
-                # print(f' {message}')
-            elif message.arbitration_id == 0x150:
-                timestamp = datetime.datetime.fromtimestamp(message.timestamp,
-                                                            datetime.timezone(datetime.timedelta(hours=0)))
-                # value_1 = int.from_bytes(message.data[0:2], byteorder="big", signed=False)  # 610 - 2870
-                # value_2 = int.from_bytes(message.data[2:4], byteorder="big", signed=False)  # 10000
-                # value_3 = int.from_bytes(message.data[4:6], byteorder="big", signed=False)  # SOC?
-                # value_4 = int.from_bytes(message.data[6:8], byteorder="big", signed=False) * 0.1  # TEMP?
-                # print(f'{timestamp} {message} {value_1:.1f} {value_2:.1f} {value_3:.1f} {value_4:.1f}')
-                # print(f'{timestamp} {message}')
-            # elif message.arbitration_id == 0x190:
-            #     timestamp = datetime.fromtimestamp(message.timestamp, timezone(timedelta(hours=0)))
-            #     # print(f'{timestamp} {message}')
-            # elif message.arbitration_id == 0x1d0:
-            #     timestamp = datetime.fromtimestamp(message.timestamp, timezone(timedelta(hours=0)))
-            #     # print(f'{timestamp} {message}')
-            # elif message.arbitration_id == 0x210:
-            #     pass
-            #     # print(f'{timestamp} {message}')
-            # elif message.arbitration_id == 0x250:
-            #     timestamp = datetime.fromtimestamp(message.timestamp, timezone(timedelta(hours=0)))
-            #     # print(f'{timestamp} {message}')
-            else:
-                timestamp = datetime.datetime.fromtimestamp(message.timestamp,
-                                                            datetime.timezone(datetime.timedelta(hours=0)))
-                value_1 = int.from_bytes(message.data[0:2], byteorder="big", signed=False) * 0.1
-                value_2 = int.from_bytes(message.data[2:4], byteorder="big", signed=False) * 0.1
-                value_3 = int.from_bytes(message.data[4:6], byteorder="big", signed=False) * 0.1
-                value_4 = int.from_bytes(message.data[6:8], byteorder="big", signed=False) * 0.1
-                # print(f'{timestamp} {message} {value_1:.1f} {value_2:.1f} {value_3:.1f} {value_4:.1f}')
-                # print(message)
-                # print(message.data.hex())
-                message_id = hex(message.arbitration_id)
-                # soc_value = int.from_bytes(message.data[0:2], byteorder="big", signed=False)
-                # soh_value = int.from_bytes(message.data[2:4], byteorder="big", signed=False)
-                # print(f'{message_id} SOC:{soc_value}% SOH:{soh_value}%')
-
-                data = (message.data[0] << 8) | message.data[1]
-                datahex = hex(data)
-                databin = bin(data)
-
-                message_id = hex(message.arbitration_id)
-                battery_charge_voltage = int.from_bytes(message.data[0:2], byteorder="big", signed=False) * 0.1
-                dc_current_limit = int.from_bytes(message.data[2:4], byteorder="big", signed=True) * 0.1
-                dc_discharge_current_limit = int.from_bytes(message.data[4:6], byteorder="big", signed=True) * 0.1
-                battery_discharge_voltage = int.from_bytes(message.data[6:8], byteorder="big", signed=False) * 0.1
-                # print(f'{message_id} {battery_charge_voltage}V {dc_current_limit}A {dc_discharge_current_limit}A {battery_discharge_voltage}V')
-
-    # print((test[2] * 0.5) - 40)
-    # print(struct.unpack('B', test)[0])
+            if message.arbitration_id == 0x150:
+                for i in range(8):
+                    if i not in byte_dict:
+                        byte_dict[i] = {}
+                    byte_dict[i][message.data[i]] = 1
+                    # if message.data[i] != 0:
+                    #     print(f'not null {i}, {hex(message.data[i - 1])} {hex(message.data[i])}')
+        print(byte_dict)
+        # print(message)
+        # message_id = hex(message.arbitration_id)
+        # timestamp = int.from_bytes(message.data[0:4], byteorder="big", signed=False)
+        # print(f'{message_id} {timestamp} {datetime.fromtimestamp(timestamp, timezone(timedelta(hours=0)))}')
 
 
 if __name__ == '__main__':
-    # test_dump('can0_to_can1.txt')
-    # test_dump('logs/can1_to_can0.txt')
+    # test_multiple_logs('can0_to_can1')
+    # test_multiple_logs('can1_to_can0')
+    # test_log('can0_to_can1.txt')
+    # test_log('logs/can1_to_can0.txt')
 
     main_window = MainWindow()
     main_window.show()
