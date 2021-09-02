@@ -232,8 +232,7 @@ class CanLogger:
         self.can1_to_can0 = CanThread('can1_to_can0', self.log_1_to_0)
 
     def start(self, can_read: can.interface.Bus, can_write: can.interface.Bus, can_thread: CanThread, file_prefix: str):
-        # folder = Path('logs')
-        folder = Path('/media/pi/Intenso/')
+        folder = Path('/mnt/ssd/logs')
         logfile = folder / f'{file_prefix}_{time.time():.0f}.txt'
         with open(logfile, 'w') as file:
             while can_thread.running:
