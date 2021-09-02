@@ -45,6 +45,13 @@
        </widget>
       </item>
       <item>
+       <widget class="QPushButton" name="pushButtonBydsim">
+        <property name="text">
+         <string>byd-sim</string>
+        </property>
+       </widget>
+      </item>
+      <item>
        <widget class="QPushButton" name="pushButtonOverwrite">
         <property name="text">
          <string>overwrite packets</string>

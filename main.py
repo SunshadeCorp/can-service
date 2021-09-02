@@ -35,35 +35,75 @@ class CanThread:
         return self.running and self.thread.is_alive()
 
 
-class CanBydSim:
+class CanStorage:
     def __init__(self):
-        try:
-            self.can0 = can.interface.Bus(channel='can0', bustype='socketcan')
-        except OSError as error:
-            print(error)
-            self.can0 = can.interface.Bus(channel='can0', bustype='virtual')
-        self.scheduler = sched.scheduler()
-        self.name = 'byd-sim'
-        self.running = False
+        self.dict_lock = threading.Lock()
+        self.latest_messages = {}
+        self.message_interval = {}
         self.overwrite = False
-        self.thread = threading.Thread(name=self.name, target=self.run, daemon=True)
+        self.overwrite_messages = []
+        self.overwrite_messages_lock = threading.Lock()
         self.message_infos = {}
         self.message_infos_lock = threading.Lock()
 
-    def overwrite_toggle(self):
-        if self.overwrite:
-            self.overwrite = False
-        else:
-            self.load_message_infos()
-            self.overwrite = True
+    @staticmethod
+    def log_line_to_message(line: str) -> can.Message:
+        line = line[line.index('Timestamp:') + 10:].strip()
+        timestamp = line[:line.index(' ')]
+        line = line[line.index('ID:') + 3:].strip()
+        can_id = line[:line.index(' ')]
+        can_id = bytes.fromhex(can_id)
+        can_id = int.from_bytes(can_id, byteorder='big', signed=False)
+        line = line[line.index(' '):].strip()
+        line = line[line.index('DLC') + 4:].strip()
+        line = line[line.index(' '):].strip()
+        line = line[:line.index('Channel')].strip()
+        line = bytes.fromhex(line)
+        return can.Message(timestamp=float(timestamp), arbitration_id=can_id, data=line, is_extended_id=False)
 
-    def start_stop(self):
-        if self.running:
-            self.running = False
-        elif not self.thread.is_alive():
-            print('start thread')
-            self.thread = threading.Thread(name=self.name, target=self.run, daemon=True)
-            self.thread.start()
+    def load_log(self, filename: str):
+        with open(filename) as file:
+            for line in file:
+                self.process_message(self.log_line_to_message(line))
+
+    def overwrite_toggle(self) -> bool:
+        self.overwrite = not self.overwrite
+        if self.overwrite:
+            self.reload_messages()
+        return self.overwrite
+
+    def reload_messages(self):
+        self.load_overwrite_messages()
+        self.load_message_infos()
+
+    def process_message(self, message: can.Message):
+        with self.dict_lock:
+            if message.arbitration_id in self.latest_messages:
+                self.message_interval[message.arbitration_id] = message.timestamp - self.latest_messages[
+                    message.arbitration_id].timestamp
+            self.latest_messages[message.arbitration_id] = message
+
+    def load_overwrite_messages(self):
+        if Path('display.json').is_file():
+            with self.overwrite_messages_lock:
+                with open('display.json', 'r') as f:
+                    self.overwrite_messages = json.load(f)
+                self.overwrite_messages[:] = [message for message in self.overwrite_messages if
+                                              len(message['overwrite']) > 0]
+                for i, overwrite_message in enumerate(self.overwrite_messages):
+                    can_id = bytes.fromhex(self.overwrite_messages[i]['can_id_hex'])
+                    can_id = int.from_bytes(can_id, byteorder='big', signed=False)
+                    self.overwrite_messages[i]['can_id'] = can_id
+                    self.overwrite_messages[i]['startbit'] = int(self.overwrite_messages[i]['startbit'])
+                    self.overwrite_messages[i]['endbit'] = int(self.overwrite_messages[i]['endbit'])
+                    signed = bool(self.overwrite_messages[i]['signed'])
+                    data = float(self.overwrite_messages[i]['overwrite']) * (
+                            1.0 / float(self.overwrite_messages[i]['scaling']))
+                    data = int(data).to_bytes(
+                        self.overwrite_messages[i]['endbit'] - self.overwrite_messages[i]['startbit'],
+                        byteorder='big',
+                        signed=signed)
+                    self.overwrite_messages[i]['data'] = data
 
     def load_message_infos(self):
         with self.message_infos_lock:
@@ -87,7 +127,17 @@ class CanBydSim:
                     if len(message_infos[i]['overwrite']) > 0:
                         self.message_infos[can_id][startbit]['overwrite'] = float(message_infos[i]['overwrite'])
 
+
+class CanBydSim:
+    def __init__(self, storage: CanStorage, can_bus: can.interface.Bus):
+        self.sto = storage
+        self.can_bus = can_bus
+        self.scheduler = sched.scheduler()
+        self.thread = CanThread('byd-sim', self.run)
+
     def process_message(self, message: can.Message):
+        print(message)
+        self.sto.process_message(message)
         if message.arbitration_id == 0x151:
             if message.data[0] == 0x1:
                 messages = [(0x250, b'\x03\x16\x00\x66\x00\x33\x02\x09'),
@@ -98,25 +148,24 @@ class CanBydSim:
                             (0x3d0, b'\x02' + b'emium H'),
                             (0x3d0, b'\x03' + b'VS' + b'\x00' * 5)]
                 for message in messages:
-                    self.can0.send(can.Message(arbitration_id=message[0], data=message[1], is_extended_id=False))
+                    can_message = can.Message(arbitration_id=message[0], data=message[1], is_extended_id=False)
+                    self.sto.process_message(can_message)
+                    self.can_bus.send(can_message)
 
     def run(self):
-        self.running = True
+        self.thread.running = True
         self.init_scheduler()
-        self.load_message_infos()
-        while self.running:
+        self.sto.load_message_infos()
+        while self.thread.running:
             self.scheduler.run(blocking=False)
             try:
-                message = self.can0.recv(0.1)
+                message = self.can_bus.recv(0.1)
             except can.CanError as e:
                 print(f'can read failed: {e}')
                 continue
             if message is not None:
                 self.process_message(message)
-        self.running = False
-
-    def is_running(self) -> bool:
-        return self.running and self.thread.is_alive()
+        self.thread.running = False
 
     def init_scheduler(self):
         self.scheduler.enter(2, 2, self.send_limits)
@@ -133,113 +182,54 @@ class CanBydSim:
 
     def calculate_message(self, can_id: int, initial_data=b'\x00' * 8) -> can.Message:
         data = bytearray(initial_data)
-        with self.message_infos_lock:
-            if can_id in self.message_infos:
-                for startbit, message_info in self.message_infos[can_id].items():
-                    if self.overwrite and 'overwrite' in message_info:
+        with self.sto.message_infos_lock:
+            if can_id in self.sto.message_infos:
+                for startbit, message_info in self.sto.message_infos[can_id].items():
+                    if self.sto.overwrite and 'overwrite' in message_info:
                         new_bytes = self.calculate_bytes(message_info, message_info['overwrite'])
                         data[startbit:message_info['endbit']] = new_bytes
-        return can.Message(arbitration_id=can_id, data=data, is_extended_id=False)
+        message = can.Message(arbitration_id=can_id, data=data, is_extended_id=False)
+        self.sto.process_message(message)
+        return message
 
     def send_limits(self):
         message = self.calculate_message(0x110, b'\x09\x20\x06\x40\x01\x00\x01\x00')
-        self.can0.send(message)
+        self.can_bus.send(message)
         print(message)
         self.scheduler.enter(2, 1, self.send_limits)
 
     def send_states(self):
         message = self.calculate_message(0x150, b'\x26\x0c\x27\x10\x00\xf3\x00\xfa')
-        self.can0.send(message)
+        self.can_bus.send(message)
         print(message)
         self.scheduler.enter(10, 1, self.send_states)
 
     def send_alarm(self):
         message = self.calculate_message(0x190, b'\x00' * 3 + b'\x04' + b'\x00' * 4)
-        self.can0.send(message)
+        self.can_bus.send(message)
         print(message)
         self.scheduler.enter(60, 1, self.send_alarm)
 
     def send_battery_info(self):
         message = self.calculate_message(0x1d0, b'\x08\x49\x00\x00\x00\xb4\x03\x08')
-        self.can0.send(message)
+        self.can_bus.send(message)
         print(message)
         self.scheduler.enter(10, 1, self.send_battery_info)
 
     def send_cell_info(self):
         message = self.calculate_message(0x210, b'\x00\xbe\x00\xb4' + b'\x00' * 4)
-        self.can0.send(message)
+        self.can_bus.send(message)
         print(message)
         self.scheduler.enter(10, 1, self.send_cell_info)
 
 
 class CanLogger:
-    def __init__(self):
-        try:
-            self.can0 = can.interface.Bus(channel='can0', bustype='socketcan')
-            self.can1 = can.interface.Bus(channel='can1', bustype='socketcan')
-        except OSError as error:
-            print(error)
-            self.can0 = can.interface.Bus(channel='can0', bustype='virtual')
-            self.can1 = can.interface.Bus(channel='can1', bustype='virtual')
+    def __init__(self, storage: CanStorage, can0: can.interface.Bus, can1: can.interface.Bus):
+        self.sto = storage
+        self.can0 = can0
+        self.can1 = can1
         self.can0_to_can1 = CanThread('can0_to_can1', self.log_0_to_1)
         self.can1_to_can0 = CanThread('can1_to_can0', self.log_1_to_0)
-        self.dict_lock = threading.Lock()
-        self.latest_messages = {}
-        self.message_interval = {}
-        self.overwrite = False
-        self.overwrite_messages = []
-        self.overwrite_messages_lock = threading.Lock()
-
-    def overwrite_toggle(self):
-        if self.overwrite:
-            self.overwrite = False
-        elif Path('display.json').is_file():
-            with self.overwrite_messages_lock:
-                with open('display.json', 'r') as f:
-                    self.overwrite_messages = json.load(f)
-                self.overwrite_messages[:] = [message for message in self.overwrite_messages if
-                                              len(message['overwrite']) > 0]
-                for i, overwrite_message in enumerate(self.overwrite_messages):
-                    can_id = bytes.fromhex(self.overwrite_messages[i]['can_id_hex'])
-                    can_id = int.from_bytes(can_id, byteorder='big', signed=False)
-                    self.overwrite_messages[i]['can_id'] = can_id
-                    self.overwrite_messages[i]['startbit'] = int(self.overwrite_messages[i]['startbit'])
-                    self.overwrite_messages[i]['endbit'] = int(self.overwrite_messages[i]['endbit'])
-                    signed = bool(self.overwrite_messages[i]['signed'])
-                    data = float(self.overwrite_messages[i]['overwrite']) * (
-                            1.0 / float(self.overwrite_messages[i]['scaling']))
-                    data = int(data).to_bytes(
-                        self.overwrite_messages[i]['endbit'] - self.overwrite_messages[i]['startbit'], byteorder='big',
-                        signed=signed)
-                    self.overwrite_messages[i]['data'] = data
-            self.overwrite = True
-
-    @staticmethod
-    def log_line_to_message(line: str) -> can.Message:
-        line = line[line.index('Timestamp:') + 10:].strip()
-        timestamp = line[:line.index(' ')]
-        line = line[line.index('ID:') + 3:].strip()
-        id = line[:line.index(' ')]
-        id = bytes.fromhex(id)
-        id = int.from_bytes(id, byteorder='big', signed=False)
-        line = line[line.index(' '):].strip()
-        line = line[line.index('DLC') + 4:].strip()
-        line = line[line.index(' '):].strip()
-        line = line[:line.index('Channel')].strip()
-        line = bytes.fromhex(line)
-        return can.Message(timestamp=float(timestamp), arbitration_id=id, data=line, is_extended_id=False)
-
-    def process_message(self, message: can.Message):
-        with self.dict_lock:
-            if message.arbitration_id in self.latest_messages:
-                self.message_interval[message.arbitration_id] = message.timestamp - self.latest_messages[
-                    message.arbitration_id].timestamp
-            self.latest_messages[message.arbitration_id] = message
-
-    def load_log(self, filename: str):
-        with open(filename) as file:
-            for line in file:
-                self.process_message(self.log_line_to_message(line))
 
     def start(self, can_read: can.interface.Bus, can_write: can.interface.Bus, can_thread: CanThread, file_prefix: str):
         # folder = Path('logs')
@@ -256,10 +246,10 @@ class CanLogger:
                     print(message)
                     print(message, file=file)
                     file.flush()
-                    if self.overwrite:
+                    if self.sto.overwrite:
                         overwritten = False
-                        with self.overwrite_messages_lock:
-                            for overwrite_message in self.overwrite_messages:
+                        with self.sto.overwrite_messages_lock:
+                            for overwrite_message in self.sto.overwrite_messages:
                                 if message.arbitration_id == overwrite_message['can_id']:
                                     message.data[overwrite_message['startbit']:overwrite_message['endbit']] = \
                                         overwrite_message['data']
@@ -270,7 +260,7 @@ class CanLogger:
                         can_write.send(message)
                     except can.CanError as e:
                         print(f'can write failed: {e}')
-                    self.process_message(message)
+                    self.sto.process_message(message)
 
     def log_0_to_1(self):
         self.can0_to_can1.running = True
@@ -284,16 +274,17 @@ class CanLogger:
 
 
 class ValuesDialog(Ui_Dialog):
-    def __init__(self, parent: QMainWindow, can_logger: CanLogger):
+    def __init__(self, parent: QMainWindow, storage: CanStorage):
         self.dialog = QDialog(parent, QtCore.Qt.WindowCloseButtonHint)
         self.setupUi(self.dialog)
 
-        self.can_logger = can_logger
+        self.storage = storage
 
         self.pushButtonClose.clicked.connect(self.close_and_save)
         self.pushButtonInsert.clicked.connect(self.insert_row)
-        self.pushButtonAutosize.clicked.connect(self.autosize_table)
+        self.pushButtonAutosize.clicked.connect(self.tableWidgetDisplay.resizeColumnsToContents)
         self.pushButtonDelete.clicked.connect(self.delete_row)
+        self.pushButtonApply.clicked.connect(self.apply_config)
 
         self.labels = ['ID Hex', 'Startbit', 'Endbit', 'Signed', 'Scaling', 'Description', 'Value', 'Overwrite']
         self.tableWidgetDisplay.setColumnCount(len(self.labels))
@@ -307,6 +298,10 @@ class ValuesDialog(Ui_Dialog):
         timer.start(1000)
 
         self.dialog.exec_()
+
+    def apply_config(self):
+        self.save_config()
+        self.storage.reload_messages()
 
     def delete_row(self):
         self.tableWidgetDisplay.removeRow(self.tableWidgetDisplay.currentRow())
@@ -419,9 +414,9 @@ class ValuesDialog(Ui_Dialog):
 
             self.display_messages.append(display_message)
 
-            with self.can_logger.dict_lock:
-                if can_id in self.can_logger.latest_messages:
-                    message = self.can_logger.latest_messages[can_id]
+            with self.storage.dict_lock:
+                if can_id in self.storage.latest_messages:
+                    message = self.storage.latest_messages[can_id]
                     value = int.from_bytes(message.data[startbit:endbit], byteorder="big", signed=signed)
                     value = scaling * value
                     format_len = 0
@@ -429,9 +424,6 @@ class ValuesDialog(Ui_Dialog):
                         format_len = len(display_message['scaling']) - 2
                     self.tableWidgetDisplay.setItem(i, self.labels.index('Value'),
                                                     QTableWidgetItem(f'{value:.{format_len}f}'))
-
-    def autosize_table(self):
-        self.tableWidgetDisplay.resizeColumnsToContents()
 
 
 class MainWindow(Ui_MainWindow):
@@ -441,14 +433,26 @@ class MainWindow(Ui_MainWindow):
         self.main_window = QtWidgets.QMainWindow()
         self.setupUi(self.main_window)
 
-        self.can_logger = CanLogger()
-        # self.can_byd_sim = CanBydSim()
-        # self.can_byd_sim.start_stop()
+        try:
+            self.can0 = can.interface.Bus(channel='can0', bustype='socketcan')
+        except OSError as e:
+            print(e)
+            self.can0 = can.interface.Bus(channel='can0', bustype='virtual')
+        try:
+            self.can1 = can.interface.Bus(channel='can1', bustype='socketcan')
+        except OSError as e:
+            print(e)
+            self.can1 = can.interface.Bus(channel='can1', bustype='virtual')
+
+        self.storage = CanStorage()
+        self.can_logger = CanLogger(self.storage, self.can0, self.can1)
+        self.can_byd_sim = CanBydSim(self.storage, self.can0)
         self.pushButtonCan0ToCan1.clicked.connect(self.can_logger.can0_to_can1.start_stop_thread)
         self.pushButtonCan1ToCan0.clicked.connect(self.can_logger.can1_to_can0.start_stop_thread)
-        self.pushButtonAutosize.clicked.connect(self.autosize_table)
+        self.pushButtonAutosize.clicked.connect(self.tableWidgetMessages.resizeColumnsToContents)
         self.pushButtonValues.clicked.connect(self.display_values)
-        self.pushButtonOverwrite.clicked.connect(self.overwrite_toggle)
+        self.pushButtonOverwrite.clicked.connect(self.storage.overwrite_toggle)
+        self.pushButtonBydsim.clicked.connect(self.can_byd_sim.thread.start_stop_thread)
 
         self.labels = ['Timestamp', 'Time', 'ID Hex', 'ID Dec', 'Data', '0U16', '0S16', '1U16', '1S16', '2U16', '2S16',
                        '3U16', '3S16', '0U32', '0S32', '1U32', '1S32', 'Interval', 'Channel']
@@ -462,24 +466,15 @@ class MainWindow(Ui_MainWindow):
         if sys.platform.startswith("linux"):
             self.main_window.showMaximized()
         else:
-            pass
-            # self.can_logger.load_log('logs/can1_to_can0.txt')
-            # self.can_logger.load_log('logs/can0_to_can1.txt')
-            # self.can_logger.load_log('logs/logfile.txt')
-
-    def overwrite_toggle(self):
-        self.can_logger.overwrite_toggle()
-        self.can_byd_sim.overwrite_toggle()
+            self.storage.load_log('logs/can1_to_can0_1629553180.txt')
+            self.storage.load_log('logs/can0_to_can1_1629553179.txt')
 
     def show(self):
         self.main_window.show()
         self.app.exec_()
 
     def display_values(self):
-        ValuesDialog(self.main_window, self.can_logger)
-
-    def autosize_table(self):
-        self.tableWidgetMessages.resizeColumnsToContents()
+        ValuesDialog(self.main_window, self.storage)
 
     def refresh_values(self):
         if self.can_logger.can0_to_can1.is_running():
@@ -490,17 +485,21 @@ class MainWindow(Ui_MainWindow):
             self.pushButtonCan1ToCan0.setText(self.pushButtonCan1ToCan0.text().upper())
         else:
             self.pushButtonCan1ToCan0.setText(self.pushButtonCan1ToCan0.text().lower())
-        if self.can_logger.overwrite:
+        if self.can_byd_sim.thread.is_running():
+            self.pushButtonBydsim.setText(self.pushButtonBydsim.text().upper())
+        else:
+            self.pushButtonBydsim.setText(self.pushButtonBydsim.text().lower())
+        if self.storage.overwrite:
             self.pushButtonOverwrite.setText(self.pushButtonOverwrite.text().upper())
         else:
             self.pushButtonOverwrite.setText(self.pushButtonOverwrite.text().lower())
-        with self.can_logger.dict_lock:
+        with self.storage.dict_lock:
             self.tableWidgetMessages.clear()
-            self.tableWidgetMessages.setRowCount(len(self.can_logger.latest_messages))
+            self.tableWidgetMessages.setRowCount(len(self.storage.latest_messages))
             self.tableWidgetMessages.setColumnCount(len(self.labels))
             self.tableWidgetMessages.setHorizontalHeaderLabels(self.labels)
-            for i, latest_message in enumerate(sorted(self.can_logger.latest_messages)):
-                message = self.can_logger.latest_messages[latest_message]
+            for i, latest_message in enumerate(sorted(self.storage.latest_messages)):
+                message = self.storage.latest_messages[latest_message]
                 self.tableWidgetMessages.setItem(i, self.labels.index('Timestamp'),
                                                  QTableWidgetItem(f"{message.timestamp:>15.2f}"))
                 timestamp = f'{datetime.datetime.fromtimestamp(message.timestamp):%H:%M:%S}'
@@ -544,8 +543,8 @@ class MainWindow(Ui_MainWindow):
                 self.tableWidgetMessages.setItem(i, self.labels.index('1U32'), QTableWidgetItem(str(value_2_u)))
                 self.tableWidgetMessages.setItem(i, self.labels.index('1S32'), QTableWidgetItem(str(value_2_s)))
 
-                if message.arbitration_id in self.can_logger.message_interval:
-                    interval = self.can_logger.message_interval[message.arbitration_id]
+                if message.arbitration_id in self.storage.message_interval:
+                    interval = self.storage.message_interval[message.arbitration_id]
                 else:
                     interval = -1
                 self.tableWidgetMessages.setItem(i, self.labels.index('Interval'), QTableWidgetItem(f'{interval:.0f}'))
@@ -561,7 +560,7 @@ def test_multiple_logs(start_name: str):
         # test_log(str(file))
         with open(file) as file_in:
             for line in file_in:
-                message = CanLogger.log_line_to_message(line)
+                message = CanStorage.log_line_to_message(line)
                 id_dict[hex(message.arbitration_id)] = 1
                 if message.arbitration_id == 0x1d0:
                     for i in range(8):
@@ -592,7 +591,7 @@ def test_log(filename: str):
     with open(filename) as file_in:
         byte_dict = {}
         for line in file_in:
-            message = CanLogger.log_line_to_message(line)
+            message = CanStorage.log_line_to_message(line)
 
             if message.arbitration_id == 0x150:
                 for i in range(8):
