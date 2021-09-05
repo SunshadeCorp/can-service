@@ -150,7 +150,10 @@ class CanBydSim:
                 for message in messages:
                     can_message = can.Message(arbitration_id=message[0], data=message[1], is_extended_id=False)
                     self.sto.process_message(can_message)
-                    self.can_bus.send(can_message)
+                    try:
+                        self.can_bus.send(can_message)
+                    except can.CanError as e:
+                        print(f'can write failed: {e}')
 
     def run(self):
         self.thread.running = True
@@ -194,31 +197,46 @@ class CanBydSim:
 
     def send_limits(self):
         message = self.calculate_message(0x110, b'\x09\x20\x06\x40\x01\x00\x01\x00')
-        self.can_bus.send(message)
+        try:
+            self.can_bus.send(message)
+        except can.CanError as e:
+            print(f'can write failed: {e}')
         print(message)
         self.scheduler.enter(2, 1, self.send_limits)
 
     def send_states(self):
         message = self.calculate_message(0x150, b'\x26\x0c\x27\x10\x00\xf3\x00\xfa')
-        self.can_bus.send(message)
+        try:
+            self.can_bus.send(message)
+        except can.CanError as e:
+            print(f'can write failed: {e}')
         print(message)
         self.scheduler.enter(10, 1, self.send_states)
 
     def send_alarm(self):
         message = self.calculate_message(0x190, b'\x00' * 3 + b'\x04' + b'\x00' * 4)
-        self.can_bus.send(message)
+        try:
+            self.can_bus.send(message)
+        except can.CanError as e:
+            print(f'can write failed: {e}')
         print(message)
         self.scheduler.enter(60, 1, self.send_alarm)
 
     def send_battery_info(self):
         message = self.calculate_message(0x1d0, b'\x08\x49\x00\x00\x00\xb4\x03\x08')
-        self.can_bus.send(message)
+        try:
+            self.can_bus.send(message)
+        except can.CanError as e:
+            print(f'can write failed: {e}')
         print(message)
         self.scheduler.enter(10, 1, self.send_battery_info)
 
     def send_cell_info(self):
         message = self.calculate_message(0x210, b'\x00\xbe\x00\xb4' + b'\x00' * 4)
-        self.can_bus.send(message)
+        try:
+            self.can_bus.send(message)
+        except can.CanError as e:
+            print(f'can write failed: {e}')
         print(message)
         self.scheduler.enter(10, 1, self.send_cell_info)
 
