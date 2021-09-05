@@ -577,9 +577,12 @@ def test_multiple_logs(start_name: str):
         # test_log(str(file))
         with open(file) as file_in:
             for line in file_in:
-                message = CanStorage.log_line_to_message(line)
+                try:
+                    message = CanStorage.log_line_to_message(line)
+                except ValueError:
+                    print(file)
                 id_dict[hex(message.arbitration_id)] = 1
-                if message.arbitration_id == 0x1d0:
+                if message.arbitration_id == 0x3d0:
                     for i in range(8):
                         if i not in byte_dict:
                             print(message)
