@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 import can
-import copy
 import paho.mqtt.client as mqtt
 import yaml
 from typing import Any, Dict
@@ -29,9 +28,7 @@ class CanService:
             self.can0 = can.interface.Bus(channel='can0', bustype='virtual')
 
         self.storage = CanStorage()
-        self.storage.overwrite_toggle()
-        assert self.storage.overwrite is True
-        self.storage.message_infos = copy.deepcopy(self.config)
+        self.storage.message_infos = self.config
         self.can_byd_sim = CanBydSim(self.storage, self.can0, service_mode=True)
         self.can_byd_sim.events.on_start += self.can_start
         self.can_byd_sim.events.on_stop += self.can_stop
@@ -86,8 +83,7 @@ class CanService:
                         payload = float(msg.payload)
                     except ValueError:
                         break
-                    with self.storage.message_infos_lock:
-                        self.storage.message_infos[can_id][start_bit]['overwrite'] = payload
+                    self.config[can_id][start_bit]['overwrite'] = payload
                     break
 
 

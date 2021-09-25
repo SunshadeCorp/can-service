@@ -72,12 +72,19 @@ class CanBydSim:
 
     def calculate_message(self, can_id: int, initial_data=b'\x00' * 8) -> can.Message:
         data = bytearray(initial_data)
-        with self.sto.message_infos_lock:
+        if self.service_mode:
             if can_id in self.sto.message_infos:
                 for startbit, message_info in self.sto.message_infos[can_id].items():
-                    if self.sto.overwrite and 'overwrite' in message_info:
+                    if 'overwrite' in message_info:
                         new_bytes = self.calculate_bytes(message_info, message_info['overwrite'])
                         data[startbit:message_info['endbit']] = new_bytes
+        else:
+            with self.sto.message_infos_lock:
+                if can_id in self.sto.message_infos:
+                    for startbit, message_info in self.sto.message_infos[can_id].items():
+                        if self.sto.overwrite and 'overwrite' in message_info:
+                            new_bytes = self.calculate_bytes(message_info, message_info['overwrite'])
+                            data[startbit:message_info['endbit']] = new_bytes
         message = can.Message(arbitration_id=can_id, data=data, is_extended_id=False)
         if not self.service_mode:
             self.sto.process_message(message)
