@@ -1,0 +1,98 @@
+145: # 0x0091
+  0:
+    endbit: 2
+    length: 2
+    read_only: true
+    scaling: 0.1
+    signed: false
+    topic: inverter/battery_voltage
+209: # 0x00d1
+  0:
+    endbit: 2
+    length: 2
+    read_only: true
+    scaling: 0.1
+    signed: false
+    topic: inverter/soc
+272: # 0x0110
+  0:
+    endbit: 2
+    length: 2
+    overwrite: 230.0
+    scaling: 0.1
+    signed: false
+    topic: limits/max_voltage
+  2:
+    endbit: 4
+    length: 2
+    overwrite: 170.0
+    scaling: 0.1
+    signed: false
+    topic: limits/min_voltage
+  4:
+    endbit: 6
+    length: 2
+    overwrite: 0.0
+    scaling: 0.1
+    signed: true
+    topic: limits/max_discharge_current
+  6:
+    endbit: 8
+    length: 2
+    overwrite: 0.0
+    scaling: 0.1
+    signed: true
+    topic: limits/max_charge_current
+273: # 0x0111
+  0:
+    endbit: 4
+    length: 4
+    read_only: true
+    scaling: 1.0
+    signed: false
+    topic: inverter/timestamp
+336: # 0x0150
+  0:
+    endbit: 2
+    length: 2
+    scaling: 0.01
+    signed: false
+    topic: battery/soc
+  2:
+    endbit: 4
+    length: 2
+    scaling: 0.01
+    signed: false
+    topic: battery/soh
+464: # 0x01d0
+  0:
+    endbit: 2
+    length: 2
+    scaling: 0.1
+    signed: true
+    topic: battery/voltage
+  2:
+    endbit: 4
+    length: 2
+    scaling: 0.1
+    signed: true
+    topic: battery/current
+  4:
+    endbit: 6
+    length: 2
+    scaling: 0.1
+    signed: true
+    topic: battery/temp
+528: # 0x0210
+  0:
+    endbit: 2
+    length: 2
+    scaling: 0.1
+    signed: false
+    topic: battery/max_cell_temp
+  2:
+    endbit: 4
+    length: 2
+    scaling: 0.1
+    signed: false
+    topic: battery/min_cell_temp

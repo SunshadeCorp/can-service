@@ -65,7 +65,7 @@ class CanStorage:
                     self.overwrite_messages[i]['can_id'] = can_id
                     self.overwrite_messages[i]['startbit'] = int(self.overwrite_messages[i]['startbit'])
                     self.overwrite_messages[i]['endbit'] = int(self.overwrite_messages[i]['endbit'])
-                    signed = bool(self.overwrite_messages[i]['signed'])
+                    signed = bool(int(self.overwrite_messages[i]['signed']))
                     data = float(self.overwrite_messages[i]['overwrite']) * (
                             1.0 / float(self.overwrite_messages[i]['scaling']))
                     data = int(data).to_bytes(
@@ -91,7 +91,7 @@ class CanStorage:
                     endbit = int(message_infos[i]['endbit'])
                     self.message_infos[can_id][startbit]['endbit'] = endbit
                     self.message_infos[can_id][startbit]['length'] = endbit - startbit
-                    self.message_infos[can_id][startbit]['signed'] = bool(message_infos[i]['signed'])
+                    self.message_infos[can_id][startbit]['signed'] = bool(int(message_infos[i]['signed']))
                     self.message_infos[can_id][startbit]['scaling'] = float(message_infos[i]['scaling'])
                     if len(message_infos[i]['overwrite']) > 0:
                         self.message_infos[can_id][startbit]['overwrite'] = float(message_infos[i]['overwrite'])

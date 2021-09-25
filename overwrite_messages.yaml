@@ -1,0 +1,40 @@
+- can_id: 272
+  can_id_hex: '0110'
+  data: !!binary |
+    CPw=
+  description: max voltage
+  endbit: 2
+  overwrite: '230'
+  scaling: '0.1'
+  signed: '0'
+  startbit: 0
+- can_id: 272
+  can_id_hex: '0110'
+  data: !!binary |
+    BqQ=
+  description: min voltage
+  endbit: 4
+  overwrite: '170'
+  scaling: '0.1'
+  signed: '0'
+  startbit: 2
+- can_id: 272
+  can_id_hex: '0110'
+  data: !!binary |
+    AAA=
+  description: max discharge current Vrfd
+  endbit: 6
+  overwrite: '0'
+  scaling: '0.1'
+  signed: '1'
+  startbit: 4
+- can_id: 272
+  can_id_hex: '0110'
+  data: !!binary |
+    AAA=
+  description: max charge current Vrfd
+  endbit: 8
+  overwrite: '0'
+  scaling: '0.1'
+  signed: '1'
+  startbit: 6

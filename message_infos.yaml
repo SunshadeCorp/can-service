@@ -1,0 +1,81 @@
+145:
+  0:
+    endbit: 2
+    length: 2
+    scaling: 0.1
+    signed: false
+209:
+  0:
+    endbit: 2
+    length: 2
+    scaling: 0.1
+    signed: false
+272:
+  0:
+    endbit: 2
+    length: 2
+    overwrite: 230.0
+    scaling: 0.1
+    signed: false
+  2:
+    endbit: 4
+    length: 2
+    overwrite: 170.0
+    scaling: 0.1
+    signed: false
+  4:
+    endbit: 6
+    length: 2
+    overwrite: 0.0
+    scaling: 0.1
+    signed: true
+  6:
+    endbit: 8
+    length: 2
+    overwrite: 0.0
+    scaling: 0.1
+    signed: true
+273:
+  0:
+    endbit: 4
+    length: 4
+    scaling: 1.0
+    signed: false
+336:
+  0:
+    endbit: 2
+    length: 2
+    scaling: 0.01
+    signed: false
+  2:
+    endbit: 4
+    length: 2
+    scaling: 0.01
+    signed: false
+464:
+  0:
+    endbit: 2
+    length: 2
+    scaling: 0.1
+    signed: true
+  2:
+    endbit: 4
+    length: 2
+    scaling: 0.1
+    signed: true
+  4:
+    endbit: 6
+    length: 2
+    scaling: 0.1
+    signed: true
+528:
+  0:
+    endbit: 2
+    length: 2
+    scaling: 0.1
+    signed: false
+  2:
+    endbit: 4
+    length: 2
+    scaling: 0.1
+    signed: false
