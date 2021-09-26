@@ -21,14 +21,14 @@ messages:
     0:
       endbit: 2
       length: 2
-      overwrite: 230.0
+      overwrite: 192.0
       scaling: 0.1
       signed: false
       topic: limits/max_voltage
     2:
       endbit: 4
       length: 2
-      overwrite: 170.0
+      overwrite: 168.0
       scaling: 0.1
       signed: false
       topic: limits/min_voltage
@@ -58,12 +58,14 @@ messages:
     0:
       endbit: 2
       length: 2
+      overwrite: 50.0
       scaling: 0.01
       signed: false
       topic: battery/soc
     2:
       endbit: 4
       length: 2
+      overwrite: 100.0
       scaling: 0.01
       signed: false
       topic: battery/soh
@@ -71,12 +73,14 @@ messages:
     0:
       endbit: 2
       length: 2
+      overwrite: 180.0
       scaling: 0.1
       signed: true
       topic: battery/voltage
     2:
       endbit: 4
       length: 2
+      overwrite: 0.0
       scaling: 0.1
       signed: true
       topic: battery/current

@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-from pathlib import Path
-
 import can
 import paho.mqtt.client as mqtt
 import yaml
+from pathlib import Path
 from typing import Any, Dict
 
 from can_byd_sim import CanBydSim
