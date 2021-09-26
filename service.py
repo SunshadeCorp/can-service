@@ -2,6 +2,7 @@
 import can
 import paho.mqtt.client as mqtt
 import yaml
+from pathlib import Path
 from typing import Any, Dict
 
 from can_byd_sim import CanBydSim
@@ -10,7 +11,7 @@ from can_storage import CanStorage
 
 class CanService:
     def __init__(self):
-        with open('config.yaml', 'r') as file:
+        with open(Path(__file__).parent / 'config.yaml', 'r') as file:
             try:
                 self.config: Dict = yaml.safe_load(file)
             except yaml.YAMLError as e:
