@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+from pathlib import Path
+
 import can
 import paho.mqtt.client as mqtt
 import yaml
@@ -10,12 +12,9 @@ from can_storage import CanStorage
 
 class CanService:
     def __init__(self):
-        with open('config.yaml', 'r') as file:
-            try:
-                self.config: Dict = yaml.safe_load(file)
-            except yaml.YAMLError as e:
-                print(e)
-        assert self.config
+        config = self.get_config('config.yaml')
+        self.config = config['messages']
+        credentials = self.get_config('credentials.yaml')
 
         self.mqtt_client = mqtt.Client()
         self.mqtt_client.on_connect = self.mqtt_on_connect
@@ -35,7 +34,19 @@ class CanService:
         self.can_byd_sim.events.on_sent += self.message_processed
         self.can_byd_sim.events.on_received += self.message_processed
 
-        self.mqtt_client.connect(host='127.0.0.1', port=1883, keepalive=60)
+        self.mqtt_client.username_pw_set(credentials['username'], credentials['password'])
+        self.mqtt_client.will_set('master/can/available', 'offline', retain=True)
+        self.mqtt_client.connect(host=config['mqtt_server'], port=config['mqtt_port'], keepalive=60)
+
+    @staticmethod
+    def get_config(filename: str) -> Dict:
+        with open(Path(__file__).parent / filename, 'r') as file:
+            try:
+                config = yaml.safe_load(file)
+                print(config)
+                return config
+            except yaml.YAMLError as e:
+                print(e)
 
     def loop(self):
         self.mqtt_client.loop_forever(retry_first_connection=True)
@@ -69,6 +80,7 @@ class CanService:
                 if 'topic' in entry:
                     if not entry.get('read_only', False):
                         self.mqtt_client.subscribe(f"master/can/{entry['topic']}/set")
+        self.mqtt_client.publish('master/can/available', 'online', retain=True)
 
     def mqtt_on_message(self, client: mqtt.Client, userdata: Any, msg: mqtt.MQTTMessage):
         if msg.topic == 'master/can/start' and not self.can_byd_sim.thread.running:
