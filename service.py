@@ -98,7 +98,7 @@ class CanService:
             return
         elif msg.topic == 'esp-module/4/total_system_current':
             self.system_current = float(msg.payload)
-            self.config[464][2]['overwrite'] = self.system_current
+            self.config[464][2]['overwrite'] = self.system_current * -1.0
             return
         for can_id in self.config:
             for start_bit in self.config[can_id]:
