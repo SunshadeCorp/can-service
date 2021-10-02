@@ -35,7 +35,7 @@ class CanBydSim:
                         self.sto.process_message(can_message)
                     try:
                         self.can_bus.send(can_message)
-                        self.events.on_sent(message)
+                        self.events.on_sent(can_message)
                     except can.CanError as e:
                         print(f'can write failed: {e}')
 
