@@ -37,6 +37,8 @@ class CanService:
         self.mqtt_client.will_set('master/can/available', 'offline', retain=True)
         self.mqtt_client.connect(host=config['mqtt_server'], port=config['mqtt_port'], keepalive=60)
 
+        self.can_byd_sim.thread.start_stop_thread()
+
     @staticmethod
     def get_config(filename: str) -> Dict:
         with open(Path(__file__).parent / filename, 'r') as file:
