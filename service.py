@@ -93,7 +93,7 @@ class CanService:
         self.mqtt_client.subscribe('esp-module/1/total_system_voltage')
         self.mqtt_client.subscribe('esp-module/4/total_system_current')
         self.mqtt_client.subscribe('master/relays/kill_switch')
-        self.mqtt_client.publish('master/can', 'running' if self.can_byd_sim.thread.running else 'stopped')
+        self.mqtt_client.publish('master/can', 'running' if self.can_byd_sim.thread.running else 'stopped', retain=True)
         self.mqtt_client.publish('master/can/available', 'online', retain=True)
 
     def mqtt_on_message(self, client: mqtt.Client, userdata: Any, msg: mqtt.MQTTMessage):
