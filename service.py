@@ -69,7 +69,7 @@ class CanService:
                 entry: Dict = self.config[can_id][start_bit]
                 value = int.from_bytes(message.data[start_bit:entry['endbit']], byteorder="big", signed=entry['signed'])
                 value = entry['scaling'] * value
-                self.mqtt_client.publish(f"master/can/{entry['topic']}", value)
+                self.mqtt_client.publish(f"master/can/{entry['topic']}", f'{value:.2f}')
             break
 
     def set_overwrite_by_topic(self, topic: str, value: float) -> bool:

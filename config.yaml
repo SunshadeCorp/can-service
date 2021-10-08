@@ -35,14 +35,14 @@ messages:
     4:
       endbit: 6
       length: 2
-      overwrite: 0.0
+      overwrite: 25.0
       scaling: 0.1
       signed: true
       topic: limits/max_discharge_current
     6:
       endbit: 8
       length: 2
-      overwrite: 0.0
+      overwrite: 25.0
       scaling: 0.1
       signed: true
       topic: limits/max_charge_current
