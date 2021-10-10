@@ -119,7 +119,9 @@ class CanService:
             return
         elif msg.topic == 'esp-module/4/total_system_current':
             try:
-                system_current = float(msg.payload) * -1.0
+                payload = msg.payload.decode()
+                payload = payload.split(',')
+                system_current = float(payload[1]) * -1.0
             except ValueError:
                 return
             self.set_overwrite_by_topic('battery/current', system_current)
