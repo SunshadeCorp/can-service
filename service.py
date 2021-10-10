@@ -13,6 +13,7 @@ class CanService:
     def __init__(self):
         config = self.get_config('config.yaml')
         self.config = config['messages']
+        self.init_config()
         credentials = self.get_config('credentials.yaml')
 
         self.mqtt_client = mqtt.Client()
@@ -38,6 +39,13 @@ class CanService:
         self.mqtt_client.connect(host=config['mqtt_server'], port=config['mqtt_port'], keepalive=60)
 
         self.can_byd_sim.thread.start_stop_thread()
+
+    def init_config(self):
+        for can_id in self.config:
+            for start_bit in self.config[can_id]:
+                entry: Dict = self.config[can_id][start_bit]
+                if 'overwrite' in entry:
+                    entry['default_overwrite'] = entry['overwrite']
 
     @staticmethod
     def get_config(filename: str) -> Dict:
@@ -127,13 +135,17 @@ class CanService:
         for can_id in self.config:
             for start_bit in self.config[can_id]:
                 entry: Dict = self.config[can_id][start_bit]
-                if 'topic' in entry and f"master/can/{entry['topic']}/set" == msg.topic:
-                    try:
-                        payload = float(msg.payload)
-                    except ValueError:
+                if 'topic' in entry:
+                    if f"master/can/{entry['topic']}/set" == msg.topic:
+                        try:
+                            payload = float(msg.payload)
+                        except ValueError:
+                            break
+                        entry['overwrite'] = payload
                         break
-                    self.config[can_id][start_bit]['overwrite'] = payload
-                    break
+                    elif f"master/can/{entry['topic']}/reset" == msg.topic:
+                        if 'default_overwrite' in entry:
+                            entry['overwrite'] = entry['default_overwrite']
 
 
 if __name__ == '__main__':
