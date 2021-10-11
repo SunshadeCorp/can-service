@@ -101,15 +101,16 @@ class CanService:
         self.mqtt_client.subscribe('esp-module/1/total_system_voltage')
         self.mqtt_client.subscribe('esp-module/4/total_system_current')
         self.mqtt_client.subscribe('master/relays/kill_switch')
-        self.mqtt_client.publish('master/can', 'running' if self.can_byd_sim.thread.running else 'stopped', retain=True)
+        self.mqtt_client.publish('master/can', 'running' if self.can_byd_sim.thread.is_alive() else 'stopped',
+                                 retain=True)
         self.mqtt_client.publish('master/can/available', 'online', retain=True)
 
     def mqtt_on_message(self, client: mqtt.Client, userdata: Any, msg: mqtt.MQTTMessage):
-        if msg.topic == 'master/can/start' and not self.can_byd_sim.thread.running:
-            self.can_byd_sim.thread.start_stop_thread()
+        if msg.topic == 'master/can/start':
+            self.can_byd_sim.thread.start_thread()
             return
-        elif msg.topic == 'master/can/stop' and self.can_byd_sim.thread.running:
-            self.can_byd_sim.thread.start_stop_thread()
+        elif msg.topic == 'master/can/stop':
+            self.can_byd_sim.thread.stop_thread()
             return
         elif msg.topic == 'master/relays/kill_switch':
             if msg.payload.decode() == 'pressed':

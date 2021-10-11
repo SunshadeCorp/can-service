@@ -45,11 +45,7 @@ class CanLogger:
                     self.sto.process_message(message)
 
     def log_0_to_1(self):
-        self.can0_to_can1.running = True
         self.start(self.can0, self.can1, self.can0_to_can1, self.can0_to_can1.name)
-        self.can0_to_can1.running = False
 
     def log_1_to_0(self):
-        self.can1_to_can0.running = True
         self.start(self.can1, self.can0, self.can1_to_can0, self.can1_to_can0.name)
-        self.can1_to_can0.running = False

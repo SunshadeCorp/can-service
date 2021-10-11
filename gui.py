@@ -219,15 +219,15 @@ class MainWindow(Ui_MainWindow):
         ValuesDialog(self.main_window, self.storage)
 
     def refresh_values(self):
-        if self.can_logger.can0_to_can1.is_running():
+        if self.can_logger.can0_to_can1.is_alive():
             self.pushButtonCan0ToCan1.setText(self.pushButtonCan0ToCan1.text().upper())
         else:
             self.pushButtonCan0ToCan1.setText(self.pushButtonCan0ToCan1.text().lower())
-        if self.can_logger.can1_to_can0.is_running():
+        if self.can_logger.can1_to_can0.is_alive():
             self.pushButtonCan1ToCan0.setText(self.pushButtonCan1ToCan0.text().upper())
         else:
             self.pushButtonCan1ToCan0.setText(self.pushButtonCan1ToCan0.text().lower())
-        if self.can_byd_sim.thread.is_running():
+        if self.can_byd_sim.thread.is_alive():
             self.pushButtonBydsim.setText(self.pushButtonBydsim.text().upper())
         else:
             self.pushButtonBydsim.setText(self.pushButtonBydsim.text().lower())

@@ -7,13 +7,13 @@ from can_service_events import CanServiceEvents
 
 
 class CanBydSim:
-    def __init__(self, storage: CanStorage, can_bus: can.interface.Bus, service_mode=False):
-        self.sto = storage
-        self.can_bus = can_bus
-        self.scheduler = sched.scheduler()
-        self.thread = CanThread('byd-sim', self.run)
-        self.events = CanServiceEvents()
-        self.service_mode = service_mode
+    def __init__(self, storage: CanStorage, can_bus: can.interface.Bus, service_mode: bool = False):
+        self.sto: CanStorage = storage
+        self.can_bus: can.interface.Bus = can_bus
+        self.scheduler: sched.scheduler = sched.scheduler()
+        self.thread: CanThread = CanThread('byd-sim', self.run)
+        self.events: CanServiceEvents = CanServiceEvents()
+        self.service_mode: bool = service_mode
 
     def process_message(self, message: can.Message):
         print(message)
@@ -40,7 +40,6 @@ class CanBydSim:
                         print(f'can write failed: {e}')
 
     def run(self):
-        self.thread.running = True
         self.events.on_start()
         self.init_scheduler()
         if not self.service_mode:
@@ -54,7 +53,7 @@ class CanBydSim:
                 continue
             if message is not None:
                 self.process_message(message)
-        self.thread.running = False
+        list(map(self.scheduler.cancel, self.scheduler.queue))
         self.events.on_stop()
 
     def init_scheduler(self):
