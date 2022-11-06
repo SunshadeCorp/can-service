@@ -35,7 +35,7 @@ esp-module
    └─ total_system_current ([int, float])
 ```
 
-current config.yaml topics:
+current `config.yaml` topics:
 
 ```
 battery
