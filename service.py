@@ -98,6 +98,7 @@ class CanService:
                 if 'topic' in entry:
                     if not entry.get('read_only', False):
                         self.mqtt_client.subscribe(f"master/can/{entry['topic']}/set")
+                        self.mqtt_client.subscribe(f"master/can/{entry['topic']}/reset")
         self.mqtt_client.subscribe('esp-module/1/total_system_voltage')
         self.mqtt_client.subscribe('esp-module/4/total_system_current')
         self.mqtt_client.subscribe('master/relays/kill_switch')
