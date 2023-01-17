@@ -1,5 +1,7 @@
 mqtt_server: 127.0.0.1
 mqtt_port: 1883
+total_system_voltage_module: 9
+total_system_current_module: 1
 messages:
   145: # 0x0091
     0:
@@ -21,14 +23,14 @@ messages:
     0:
       endbit: 2
       length: 2
-      overwrite: 192.0
+      overwrite: 421.0
       scaling: 0.1
       signed: false
       topic: limits/max_voltage
     2:
       endbit: 4
       length: 2
-      overwrite: 168.0
+      overwrite: 367.0
       scaling: 0.1
       signed: false
       topic: limits/min_voltage
@@ -73,7 +75,7 @@ messages:
     0:
       endbit: 2
       length: 2
-      overwrite: 180.0
+      overwrite: 400.0
       scaling: 0.1
       signed: true
       topic: battery/voltage

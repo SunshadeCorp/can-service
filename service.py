@@ -12,6 +12,8 @@ from can_storage import CanStorage
 class CanService:
     def __init__(self):
         config = self.get_config('config.yaml')
+        self.total_system_voltage_topic = f"esp-module/{config['total_system_voltage_module']}/total_system_voltage"
+        self.total_system_current_topic = f"esp-module/{config['total_system_current_module']}/total_system_current"
         self.config = config['messages']
         self.init_config()
         credentials = self.get_config('credentials.yaml')
@@ -99,8 +101,8 @@ class CanService:
                     if not entry.get('read_only', False):
                         self.mqtt_client.subscribe(f"master/can/{entry['topic']}/set")
                         self.mqtt_client.subscribe(f"master/can/{entry['topic']}/reset")
-        self.mqtt_client.subscribe('esp-module/1/total_system_voltage')
-        self.mqtt_client.subscribe('esp-module/4/total_system_current')
+        self.mqtt_client.subscribe(self.total_system_voltage_topic)
+        self.mqtt_client.subscribe(self.total_system_current_topic)
         self.mqtt_client.subscribe('master/relays/kill_switch')
         self.mqtt_client.publish('master/can', 'running' if self.can_byd_sim.thread.is_alive() else 'stopped',
                                  retain=True)
@@ -120,14 +122,14 @@ class CanService:
                 self.set_overwrite_by_topic('limits/max_discharge_current', 0.0)
                 self.set_overwrite_by_topic('limits/max_charge_current', 0.0)
             return
-        elif msg.topic == 'esp-module/1/total_system_voltage':
+        elif msg.topic == self.total_system_voltage_topic:
             try:
                 system_voltage = float(msg.payload)
             except ValueError:
                 return
             self.set_overwrite_by_topic('battery/voltage', system_voltage)
             return
-        elif msg.topic == 'esp-module/4/total_system_current':
+        elif msg.topic == self.total_system_current_topic:
             try:
                 payload = msg.payload.decode()
                 payload = payload.split(',')
