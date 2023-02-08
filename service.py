@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
+from pathlib import Path
+from typing import Any, Dict
+
 import can
 import paho.mqtt.client as mqtt
 import yaml
-from pathlib import Path
-from typing import Any, Dict
 
 from can_byd_sim import CanBydSim
 from can_storage import CanStorage
@@ -12,8 +13,8 @@ from can_storage import CanStorage
 class CanService:
     def __init__(self):
         config = self.get_config('config.yaml')
-        self.total_system_voltage_topic = f"esp-module/{config['total_system_voltage_module']}/total_system_voltage"
-        self.total_system_current_topic = f"esp-module/{config['total_system_current_module']}/total_system_current"
+        self.total_system_voltage_topic = "esp-total/total_voltage"
+        self.total_system_current_topic = "esp-total/total_current"
         self.config = config['messages']
         self.init_config()
         credentials = self.get_config('credentials.yaml')
@@ -131,9 +132,7 @@ class CanService:
             return
         elif msg.topic == self.total_system_current_topic:
             try:
-                payload = msg.payload.decode()
-                payload = payload.split(',')
-                system_current = float(payload[1])
+                system_current = float(msg.payload) * -1
             except ValueError:
                 return
             self.set_overwrite_by_topic('battery/current', system_current)
