@@ -70,18 +70,16 @@ master
 │     └─ set ([float])
 └─ relays
    └─ kill_switch (pressed)
-esp-module
-├─ 1
-│  └─ total_system_voltage ([float])
-└─ 4
-   └─ total_system_current ([int, float])
+esp-total
+├─ total_voltage ([float])
+└─ total_current ([float]) {positive = discharge, negative = charge}
 ```
 
 current `config.yaml` topics:
 
 ```
 battery
-├─ current
+├─ current {positive = charge, negative = discharge}
 ├─ max_cell_temp
 ├─ min_cell_temp
 ├─ soc
