@@ -133,7 +133,7 @@ class CanService:
             try:
                 payload = msg.payload.decode()
                 payload = payload.split(',')
-                system_current = float(payload[1]) * -1.0
+                system_current = float(payload[1])
             except ValueError:
                 return
             self.set_overwrite_by_topic('battery/current', system_current)
