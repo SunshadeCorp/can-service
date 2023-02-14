@@ -26,14 +26,20 @@ class CanStorage:
         line = line[line.index(' '):].strip()
         line = line[line.index('DLC') + 4:].strip()
         line = line[line.index(' '):].strip()
+        channel = line[line.index('Channel:') + 8:].strip()
         line = line[:line.index('Channel')].strip()
         line = bytes.fromhex(line)
-        return can.Message(timestamp=float(timestamp), arbitration_id=can_id, data=line, is_extended_id=False)
+        return can.Message(timestamp=float(timestamp), arbitration_id=can_id, data=line, is_extended_id=False,
+                           channel=channel)
 
     def load_log(self, filename: str):
         with open(filename) as file:
             for line in file:
-                self.process_message(self.log_line_to_message(line))
+                try:
+                    message = self.log_line_to_message(line)
+                    self.process_message(message)
+                except ValueError as e:
+                    print(e, line)
 
     def overwrite_toggle(self) -> bool:
         self.overwrite = not self.overwrite

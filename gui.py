@@ -208,8 +208,11 @@ class MainWindow(Ui_MainWindow):
         if sys.platform.startswith("linux"):
             self.main_window.showMaximized()
         else:
-            self.storage.load_log('logs/can1_to_can0_1629553180.txt')
-            self.storage.load_log('logs/can0_to_can1_1629553179.txt')
+            import glob
+            for file in glob.glob('logs/*.txt'):
+                self.storage.load_log(file)
+            # self.storage.load_log('logs/can1_to_can0_1629553180.txt')
+            # self.storage.load_log('logs/can0_to_can1_1629553179.txt')
 
     def show(self):
         self.main_window.show()
