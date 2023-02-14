@@ -57,11 +57,11 @@ class CanBydSim:
         self.events.on_stop()
 
     def init_scheduler(self):
-        self.scheduler.enter(2, 2, self.send_limits)
-        self.scheduler.enter(10, 2, self.send_states)
-        self.scheduler.enter(60, 2, self.send_alarm)
-        self.scheduler.enter(10, 2, self.send_battery_info)
-        self.scheduler.enter(10, 2, self.send_cell_info)
+        self.scheduler.enter(1.9, 1, self.send_limits)
+        self.scheduler.enter(9.9, 1, self.send_states)
+        self.scheduler.enter(59.9, 1, self.send_alarm)
+        self.scheduler.enter(9.9, 1, self.send_battery_info)
+        self.scheduler.enter(9.9, 1, self.send_cell_info)
 
     @staticmethod
     def calculate_bytes(message_info: dict, value: float) -> bytearray:
@@ -97,7 +97,7 @@ class CanBydSim:
         except can.CanError as e:
             print(f'can write failed: {e}')
         print(message)
-        self.scheduler.enter(2, 1, self.send_limits)
+        self.scheduler.enter(1.9, 1, self.send_limits)
 
     def send_states(self):
         message = self.calculate_message(0x150, b'\x26\x0c\x27\x10\x00\xf3\x00\xfa')
@@ -107,7 +107,7 @@ class CanBydSim:
         except can.CanError as e:
             print(f'can write failed: {e}')
         print(message)
-        self.scheduler.enter(10, 1, self.send_states)
+        self.scheduler.enter(9.9, 1, self.send_states)
 
     def send_alarm(self):
         message = self.calculate_message(0x190, b'\x00' * 3 + b'\x04' + b'\x00' * 4)
@@ -117,7 +117,7 @@ class CanBydSim:
         except can.CanError as e:
             print(f'can write failed: {e}')
         print(message)
-        self.scheduler.enter(60, 1, self.send_alarm)
+        self.scheduler.enter(59.9, 1, self.send_alarm)
 
     def send_battery_info(self):
         message = self.calculate_message(0x1d0, b'\x08\x49\x00\x00\x00\xb4\x03\x08')
@@ -127,7 +127,7 @@ class CanBydSim:
         except can.CanError as e:
             print(f'can write failed: {e}')
         print(message)
-        self.scheduler.enter(10, 1, self.send_battery_info)
+        self.scheduler.enter(9.9, 1, self.send_battery_info)
 
     def send_cell_info(self):
         message = self.calculate_message(0x210, b'\x00\xbe\x00\xb4' + b'\x00' * 4)
@@ -137,4 +137,4 @@ class CanBydSim:
         except can.CanError as e:
             print(f'can write failed: {e}')
         print(message)
-        self.scheduler.enter(10, 1, self.send_cell_info)
+        self.scheduler.enter(9.9, 1, self.send_cell_info)
