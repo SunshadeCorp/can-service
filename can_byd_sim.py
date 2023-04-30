@@ -1,9 +1,10 @@
-import can
 import sched
 
+import can
+
+from can_service_events import CanServiceEvents
 from can_storage import CanStorage
 from can_thread import CanThread
-from can_service_events import CanServiceEvents
 
 
 class CanBydSim:
@@ -16,8 +17,8 @@ class CanBydSim:
         self.service_mode: bool = service_mode
 
     def process_message(self, message: can.Message):
-        print(message)
         if not self.service_mode:
+            print(message)
             self.sto.process_message(message)
         self.events.on_received(message)
         if message.arbitration_id == 0x151:
@@ -96,7 +97,8 @@ class CanBydSim:
             self.events.on_sent(message)
         except can.CanError as e:
             print(f'can write failed: {e}')
-        print(message)
+        if not self.service_mode:
+            print(message)
         self.scheduler.enter(1.9, 1, self.send_limits)
 
     def send_states(self):
@@ -106,7 +108,8 @@ class CanBydSim:
             self.events.on_sent(message)
         except can.CanError as e:
             print(f'can write failed: {e}')
-        print(message)
+        if not self.service_mode:
+            print(message)
         self.scheduler.enter(9.9, 1, self.send_states)
 
     def send_alarm(self):
@@ -116,7 +119,8 @@ class CanBydSim:
             self.events.on_sent(message)
         except can.CanError as e:
             print(f'can write failed: {e}')
-        print(message)
+        if not self.service_mode:
+            print(message)
         self.scheduler.enter(59.9, 1, self.send_alarm)
 
     def send_battery_info(self):
@@ -126,7 +130,8 @@ class CanBydSim:
             self.events.on_sent(message)
         except can.CanError as e:
             print(f'can write failed: {e}')
-        print(message)
+        if not self.service_mode:
+            print(message)
         self.scheduler.enter(9.9, 1, self.send_battery_info)
 
     def send_cell_info(self):
@@ -136,5 +141,6 @@ class CanBydSim:
             self.events.on_sent(message)
         except can.CanError as e:
             print(f'can write failed: {e}')
-        print(message)
+        if not self.service_mode:
+            print(message)
         self.scheduler.enter(9.9, 1, self.send_cell_info)
