@@ -19,15 +19,15 @@ class CanService:
         self.init_config()
         credentials = self.get_config('credentials.yaml')
 
-        self.mqtt_client = mqtt.Client()
+        self.mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
         self.mqtt_client.on_connect = self.mqtt_on_connect
         self.mqtt_client.on_message = self.mqtt_on_message
 
         try:
-            self.can0 = can.interface.Bus(channel='can0', bustype='socketcan')
+            self.can0 = can.interface.Bus(channel='can0', interface='socketcan')
         except OSError as e:
             print(e)
-            self.can0 = can.interface.Bus(channel='can0', bustype='virtual')
+            self.can0 = can.interface.Bus(channel='can0', interface='virtual')
 
         self.storage = CanStorage()
         self.storage.message_infos = self.config
@@ -39,7 +39,7 @@ class CanService:
 
         self.mqtt_client.username_pw_set(credentials['username'], credentials['password'])
         self.mqtt_client.will_set('master/can/available', 'offline', retain=True)
-        self.mqtt_client.connect(host=config['mqtt_server'], port=config['mqtt_port'], keepalive=60)
+        self.mqtt_client.connect(host=config['mqtt_server'], port=config['mqtt_port'])
 
         self.can_byd_sim.thread.start_stop_thread()
 
@@ -92,7 +92,7 @@ class CanService:
                     return True
         return False
 
-    def mqtt_on_connect(self, client: mqtt.Client, userdata: Any, flags: Dict, rc: int):
+    def mqtt_on_connect(self, client, userdata, flags, reason_code, properties):
         self.mqtt_client.subscribe('master/can/start')
         self.mqtt_client.subscribe('master/can/stop')
         for can_id in self.config:
