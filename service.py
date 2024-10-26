@@ -13,8 +13,8 @@ from can_storage import CanStorage
 class CanService:
     def __init__(self):
         config = self.get_config('config.yaml')
-        self.total_system_voltage_topic = "esp-total/total_voltage"
-        self.total_system_current_topic = "esp-total/total_current"
+        self.total_system_voltage_topic = config.get('total_system_voltage_topic', 'esp-total/total_voltage')
+        self.total_system_current_topic = config.get('total_system_current_topic', 'esp-total/total_current')
         self.config = config['messages']
         self.init_config()
         credentials = self.get_config('credentials.yaml')
