@@ -1,5 +1,2 @@
-Events~=0.5
-paho-mqtt~=2.1.0
-python-can~=4.4.2
-PyYAML~=6.0.1
+-r requirements.txt
 PyQt5~=5.15.9
