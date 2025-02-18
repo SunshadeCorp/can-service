@@ -176,15 +176,15 @@ class MainWindow(Ui_MainWindow):
         self.setupUi(self.main_window)
 
         try:
-            self.can0 = can.interface.Bus(channel='can0', bustype='socketcan')
+            self.can0 = can.interface.Bus(channel='can0', interface='socketcan')
         except OSError as e:
             print(e)
-            self.can0 = can.interface.Bus(channel='can0', bustype='virtual')
+            self.can0 = can.interface.Bus(channel='can0', interface='virtual')
         try:
-            self.can1 = can.interface.Bus(channel='can1', bustype='socketcan')
+            self.can1 = can.interface.Bus(channel='can1', interface='socketcan')
         except OSError as e:
             print(e)
-            self.can1 = can.interface.Bus(channel='can1', bustype='virtual')
+            self.can1 = can.interface.Bus(channel='can1', interface='virtual')
 
         self.storage = CanStorage()
         self.can_logger = CanLogger(self.storage, self.can0, self.can1)

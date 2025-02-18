@@ -67,7 +67,10 @@ class CanBydSim:
     @staticmethod
     def calculate_bytes(message_info: dict, value: float) -> bytearray:
         data = value * (1.0 / message_info['scaling'])
-        data = int(data).to_bytes(message_info['length'], byteorder='big', signed=message_info['signed'])
+        try:
+            data = int(data).to_bytes(message_info['length'], byteorder='big', signed=message_info['signed'])
+        except OverflowError:
+            data = int(0).to_bytes(message_info['length'], byteorder='big', signed=message_info['signed'])
         return bytearray(data)
 
     def calculate_message(self, can_id: int, initial_data=b'\x00' * 8) -> can.Message:

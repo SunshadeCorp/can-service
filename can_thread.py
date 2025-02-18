@@ -4,7 +4,7 @@ from typing import Callable
 
 class CanThread:
     def __init__(self, name: str, target: Callable):
-        self._name = name
+        self.name = name
         self._alive = False
         self.running = False
         self._target = target
@@ -12,7 +12,7 @@ class CanThread:
 
     def start_thread(self):
         if not self._alive:
-            self._thread = threading.Thread(name=self._name, target=self._run, daemon=True)
+            self._thread = threading.Thread(name=self.name, target=self._run, daemon=True)
             self._thread.start()
 
     def stop_thread(self):
